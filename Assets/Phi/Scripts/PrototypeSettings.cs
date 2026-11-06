@@ -75,6 +75,15 @@ namespace Phi // 전투 설정 영역
         public float slimeDashSpeed = 5f; // 임시 슬라임 돌진 속도
         public float slimeHitDistance = 0.65f; // 임시 슬라임 적중 거리
         public int slimeCount = 3; // 임시 시험 적 수
+        public int goblinCount = 0; // 기존 설정의 고블린 추가 없음
+        public int goblinHealth = 40; // 고블린 최대 체력
+        public int goblinAttack = 10; // 고블린 공격력
+        public int goblinDefense = 1; // 고블린 방어력
+        public float goblinSpeed = 2.5f; // 임시 고블린 이동속도
+        public float goblinAttackRange = 1f; // 임시 고블린 공격 거리
+        public float goblinWindup = 0.35f; // 임시 고블린 공격 예고 시간
+        public float goblinAttackInterval = 1f; // 임시 고블린 공격 간격
+        public float goblinAttackAngle = 90f; // 임시 고블린 베기 각도
     }
 }
 

@@ -38,6 +38,8 @@ namespace Phi // 프로토타입 영역
         }
         private Fighter player; // 플레이어 전투 상태
         private readonly List<Slime> slimes = new List<Slime>(); // 슬라임 목록
+        private readonly List<Goblin> goblins = new List<Goblin>(); // 고블린 행동 목록
+        private readonly List<Fighter> enemies = new List<Fighter>(); // 생성 순서의 공통 적 목록
         private readonly List<BowArrow> arrows = new List<BowArrow>(); // 발사된 화살 상태 목록
         private readonly List<RaycastHit2D> arrowHits = new List<RaycastHit2D>(); // 화살 경로 충돌 결과
         private readonly List<Collider2D> arrowOverlaps = new List<Collider2D>(); // 화살 출발점 충돌 결과
@@ -192,6 +194,10 @@ namespace Phi // 프로토타입 영역
             UpdateArrows(); // 발사된 화살 이동과 충돌
             UpdateExplosionEffects(); // 종료된 폭발 표시 정리
             UpdateSlimes(); // 슬라임 행동
+            if (!player.Dead) // 슬라임 공격 이후 생존 여부
+            {
+                UpdateGoblins(); // 고블린 근접 행동
+            }
             if (player.Dead) // 이번 프레임의 플레이어 사망 여부
             {
                 ClearArrows(); // 사망 후 화살 피해 방지
@@ -278,6 +284,26 @@ namespace Phi // 프로토타입 영역
                 fighter.Initialize(runtimeSettings.slimeHealth, runtimeSettings.slimeDefense); // 슬라임 능력치 설정
                 fighter.Died += SpawnSlimeLoot; // 슬라임 사망 전이의 시험 전리품 연결
                 slimes.Add(new Slime(fighter)); // 슬라임 행동 상태 추가
+                enemies.Add(fighter); // 공통 공격 대상에 슬라임 등록
+            }
+            for (int index = 0; index < Mathf.Max(0, runtimeSettings.goblinCount); index++) // 시험 고블린 생성 반복
+            {
+                float angle = -Mathf.PI * 0.5f + index * Mathf.PI * 2f / Mathf.Max(1, runtimeSettings.goblinCount); // 근접 적 배치 각도
+                Vector2 position = mapRegion.ClampPosition(mapCenter + new Vector2(Mathf.Cos(angle), Mathf.Sin(angle)) * 4f, PrototypeSettings.SlimeRadius); // 씬 경계 안의 고블린 위치
+                GameObject goblinObject = Shape("Goblin " + (index + 1), position, new Vector2(0.7f, 0.7f), new Color(0.85f, 0.45f, 0.25f), 1); // 고블린 임시 도형
+                if (combatLayersReady) // 전투 계층 준비 여부
+                {
+                    goblinObject.layer = enemyLayer; // 적 충돌 계층 지정
+                }
+                BoxCollider2D goblinCollider = goblinObject.AddComponent<BoxCollider2D>(); // 투사체 적중용 충돌체
+                goblinCollider.size = Vector2.one; // 고블린 도형 크기와 일치
+                Fighter goblinFighter = goblinObject.AddComponent<Fighter>(); // 고블린 전투 상태
+                goblinFighter.Initialize(runtimeSettings.goblinHealth, runtimeSettings.goblinDefense); // 고블린 기획 능력치 적용
+                GameObject weapon = Shape("Goblin Weapon", position, new Vector2(0.18f, 0.8f), new Color(0.95f, 0.9f, 0.6f), 2); // 근접 베기 예고용 무기
+                weapon.transform.SetParent(goblinObject.transform, false); // 고블린에 무기 표시 연결
+                weapon.transform.localPosition = new Vector3(0.55f, 0.05f, 0f); // 본체 옆 무기 위치
+                goblins.Add(new Goblin(goblinFighter, weapon.transform)); // 독립 고블린 행동 등록
+                enemies.Add(goblinFighter); // 공통 공격 대상에 고블린 등록
             }
         }
 
@@ -560,9 +586,8 @@ namespace Phi // 프로토타입 영역
             ShowCircleEffect(origin, radius, "Whirlwind Slash", new Color(0.95f, 0.9f, 0.45f)); // 임시 범위 표시
             Physics2D.SyncTransforms(); // 변경된 적과 장애물 위치 반영
             HashSet<Fighter> targets = new HashSet<Fighter>(); // 공격당 중복 피해 방지
-            foreach (Slime slime in slimes) // 생존 적 순회
+            foreach (Fighter target in enemies) // 생성 순서의 적 순회
             {
-                Fighter target = slime.Fighter; // 현재 전투 대상
                 if (target == null || target.Dead || !targets.Add(target)) // 사망 또는 중복 대상 확인
                 {
                     continue; // 피해 대상 제외
@@ -784,11 +809,11 @@ namespace Phi // 프로토타입 영역
             }
             Physics2D.SyncTransforms(); // 변경된 장애물 위치의 물리 반영
             List<Fighter> targets = new List<Fighter>(); // 이번 공격의 대상 목록
-            foreach (Slime slime in slimes) // 각 슬라임 검사
+            foreach (Fighter target in enemies) // 각 적 검사
             {
-                if (!slime.Fighter.Dead && CombatMath.InSwordSector(player.transform.position, aim, slime.Fighter.transform.position, runtimeSettings.swordRange, runtimeSettings.swordAngle) && Physics2D.Linecast(player.transform.position, slime.Fighter.transform.position, swordOcclusionFilter, swordOcclusionHits) == 0) // 생존과 부채꼴 및 벽 차단 판정
+                if (target != null && !target.Dead && CombatMath.InSwordSector(player.transform.position, aim, target.transform.position, runtimeSettings.swordRange, runtimeSettings.swordAngle) && Physics2D.Linecast(player.transform.position, target.transform.position, swordOcclusionFilter, swordOcclusionHits) == 0) // 생존과 부채꼴 및 벽 차단 판정
                 {
-                    targets.Add(slime.Fighter); // 고유 대상 추가
+                    targets.Add(target); // 고유 대상 추가
                 }
             }
             targets.Sort((left, right) => ((Vector2)(left.transform.position - player.transform.position)).sqrMagnitude.CompareTo(((Vector2)(right.transform.position - player.transform.position)).sqrMagnitude)); // 가까운 대상 우선
@@ -820,11 +845,10 @@ namespace Phi // 프로토타입 영역
         private void ExplodeStaff(Vector2 position, int attack, float radius, int maximum) // 지팡이의 단일 폭발 처리
         {
             ShowStaffExplosion(position, radius); // 임시 폭발 범위 표시
-            List<Slime> candidates = new List<Slime>(); // 벽에 가려지지 않은 폭발 대상 목록
+            List<Fighter> candidates = new List<Fighter>(); // 벽에 가려지지 않은 폭발 대상 목록
             HashSet<Fighter> unique = new HashSet<Fighter>(); // 동일 전투 대상 중복 검사
-            foreach (Slime slime in slimes) // 현재 슬라임 목록 검사
+            foreach (Fighter target in enemies) // 현재 적 목록 검사
             {
-                Fighter target = slime.Fighter; // 슬라임 전투 상태
                 if (target == null || target.Dead || !unique.Add(target)) // 사망 또는 중복 대상 확인
                 {
                     continue; // 유효하지 않은 대상 제외
@@ -838,18 +862,18 @@ namespace Phi // 프로토타입 영역
                 {
                     continue; // 벽에 가려진 대상 제외
                 }
-                candidates.Add(slime); // 피해 가능한 고유 대상 추가
+                candidates.Add(target); // 피해 가능한 고유 대상 추가
             }
             candidates.Sort((left, right) => // 폭발 중심에서 가까운 대상 정렬
             {
-                float leftDistance = ((Vector2)left.Fighter.transform.position - position).sqrMagnitude; // 왼쪽 대상의 거리 제곱
-                float rightDistance = ((Vector2)right.Fighter.transform.position - position).sqrMagnitude; // 오른쪽 대상의 거리 제곱
+                float leftDistance = ((Vector2)left.transform.position - position).sqrMagnitude; // 왼쪽 대상의 거리 제곱
+                float rightDistance = ((Vector2)right.transform.position - position).sqrMagnitude; // 오른쪽 대상의 거리 제곱
                 int distanceOrder = leftDistance.CompareTo(rightDistance); // 대상 거리 순서 비교
-                return distanceOrder != 0 ? distanceOrder : slimes.IndexOf(left).CompareTo(slimes.IndexOf(right)); // 거리 동률의 생성 순서
+                return distanceOrder != 0 ? distanceOrder : enemies.IndexOf(left).CompareTo(enemies.IndexOf(right)); // 거리 동률의 생성 순서
             });
             for (int index = 0; index < Mathf.Min(maximum, candidates.Count); index++) // 최대 대상 수만큼 피해 적용
             {
-                Fighter target = candidates[index].Fighter; // 현재 폭발 피해 대상
+                Fighter target = candidates[index]; // 현재 폭발 피해 대상
                 target.TakeDamage(CombatMath.Damage(attack, 1f, target.Defense, false)); // 공통 계산의 지팡이 피해 적용
             }
         }
@@ -946,6 +970,28 @@ namespace Phi // 프로토타입 영역
                     SetEquipmentButtonsInteractable(false); // 사망 중 무기 버튼 비활성화
                     gameOverPanel.SetActive(true); // 재시작 화면 표시
                     break; // 추가 공격 중지
+                }
+            }
+        }
+
+        private void UpdateGoblins() // 고블린 근접 행동 갱신
+        {
+            if (!combatLayersReady) // 적 공격의 장애물 계층 확인
+            {
+                return; // 장애물 판정이 없으면 잘못된 공격 방지
+            }
+            foreach (Goblin goblin in goblins) // 각 고블린 행동
+            {
+                if (goblin.Fighter == null || goblin.Fighter.Dead) // 사망하거나 제거된 적 확인
+                {
+                    continue; // 사망 개체 행동 제외
+                }
+                goblin.Tick(player, runtimeSettings, mapRegion, swordOcclusionFilter, swordOcclusionHits); // 빠른 접근과 근접 베기 처리
+                if (player.Dead) // 고블린 공격으로 플레이어 사망 여부
+                {
+                    SetEquipmentButtonsInteractable(false); // 사망 중 무기 버튼 비활성화
+                    gameOverPanel.SetActive(true); // 재시작 화면 표시
+                    break; // 사망 후 추가 공격 중지
                 }
             }
         }
