@@ -10,14 +10,16 @@ namespace Phi // 원거리 적 행동 영역
             get; // 궁수 체력 상태 읽기
         }
         private readonly Transform bow; // 공격 예고용 활 표시
+        private readonly System.Func<Vector2, Vector2, float, bool, Vector2> move; // 공통 장애물 이동
         private float nextAttack; // 다음 공격 가능 시각
         private float windupUntil; // 활시위 예고 종료 시각
         private Vector2 shotDirection; // 예고 시 고정한 화살 방향
 
-        public SkeletonArcher(Fighter fighter, Transform bow) // 궁수 행동 상태 생성
+        public SkeletonArcher(Fighter fighter, Transform bow, System.Func<Vector2, Vector2, float, bool, Vector2> move) // 궁수 행동 상태 생성
         {
             Fighter = fighter; // 궁수 전투 상태 보관
             this.bow = bow; // 활 표시 보관
+            this.move = move; // 공통 장애물 이동 보관
             Fighter.Died += HideBow; // 사망 시 활 표시 정리
         }
 
@@ -40,7 +42,7 @@ namespace Phi // 원거리 적 행동 영역
             if (distance < keep && distance > 0.0001f) // 플레이어가 너무 가까운 경우
             {
                 float step = Mathf.Min(Mathf.Max(0f, settings.skeletonSpeed) * Time.deltaTime, keep - distance); // 유지 거리를 넘지 않는 후퇴 거리
-                Fighter.transform.position = mapRegion.ClampPosition((Vector2)Fighter.transform.position - offset.normalized * step, PrototypeSettings.SlimeRadius); // 씬 경계 안의 거리 유지
+                Fighter.transform.position = move(Fighter.transform.position, -offset.normalized * step, PrototypeSettings.SlimeRadius, true); // 씬 경계 안의 거리 유지
                 return; // 후퇴 중 공격 생략
             }
             if (distance <= range && Time.time >= nextAttack) // 공격 거리와 간격 확인
@@ -54,7 +56,7 @@ namespace Phi // 원거리 적 행동 영역
             if (distance > range && distance > 0.0001f) // 공격 거리 밖 확인
             {
                 float step = Mathf.Min(Mathf.Max(0f, settings.skeletonSpeed) * Time.deltaTime, distance - range); // 공격 거리까지의 접근량
-                Fighter.transform.position = mapRegion.ClampPosition((Vector2)Fighter.transform.position + offset.normalized * step, PrototypeSettings.SlimeRadius); // 씬 경계 안의 접근
+                Fighter.transform.position = move(Fighter.transform.position, offset.normalized * step, PrototypeSettings.SlimeRadius, true); // 씬 경계 안의 접근
             }
         }
 

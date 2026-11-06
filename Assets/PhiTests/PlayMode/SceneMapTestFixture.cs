@@ -39,6 +39,11 @@ internal sealed class SceneMapTestFixture : IDisposable // 독립 씬 맵 시험
                 {
                     return; // 누락된 오브젝트 생성 금지
                 }
+                Transform wall = floor.Find("Internal Wall"); // 기본 씬의 내부 장애물
+                if (wall != null) // 저장된 장애물 존재 여부
+                {
+                    wall.gameObject.SetActive(false); // 독립 전투 시험의 벽 간섭 제외
+                }
                 floor.localPosition = Vector3.zero; // 시험용 바닥 중심
                 floor.localRotation = Quaternion.identity; // 시험용 바닥 회전
                 floor.localScale = new Vector3(20f, 12f, 1f); // 시험용 바닥 크기

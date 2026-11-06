@@ -9,14 +9,16 @@ namespace Phi // 근접 적 행동 영역
             get; // 고블린 체력 상태 읽기
         }
         private readonly Transform weapon; // 예고에 사용할 무기 표시
+        private readonly System.Func<Vector2, Vector2, float, bool, Vector2> move; // 공통 장애물 이동
         private float nextAttack; // 다음 공격 가능 시각
         private float windupUntil; // 공격 예고 종료 시각
         private Vector2 attackDirection; // 예고 시작 시 고정한 베기 방향
 
-        public Goblin(Fighter fighter, Transform weapon) // 고블린 행동 상태 생성
+        public Goblin(Fighter fighter, Transform weapon, System.Func<Vector2, Vector2, float, bool, Vector2> move) // 고블린 행동 상태 생성
         {
             Fighter = fighter; // 고블린 전투 상태 보관
             this.weapon = weapon; // 무기 표시 보관
+            this.move = move; // 공통 장애물 이동 보관
             Fighter.Died += HideWeapon; // 사망 시 무기 표시 제거
         }
 
@@ -49,7 +51,7 @@ namespace Phi // 근접 적 행동 영역
             if (offset.magnitude > range * 0.8f) // 근접 거리 밖 확인
             {
                 float step = Mathf.Min(Mathf.Max(0f, settings.goblinSpeed) * Time.deltaTime, offset.magnitude); // 플레이어 방향 접근 거리
-                Fighter.transform.position = mapRegion.ClampPosition((Vector2)Fighter.transform.position + offset.normalized * step, PrototypeSettings.SlimeRadius); // 씬 경계 안의 빠른 접근
+                Fighter.transform.position = move(Fighter.transform.position, offset.normalized * step, PrototypeSettings.SlimeRadius, true); // 씬 경계 안의 빠른 접근
             }
         }
 

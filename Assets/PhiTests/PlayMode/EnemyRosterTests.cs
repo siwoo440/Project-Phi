@@ -269,7 +269,11 @@ public class EnemyRosterTests // 22일차 일반 적 5종 시험
         Enemy("Skeleton 1").transform.position = new Vector3(3f, 0f, 0f); // 오른쪽 궁수 위치
         player.TakeDamage(94); // 적 화살 한 번에 사망할 체력
         SetNumber("skeletonAttackRange", 6f); // 궁수 공격 허용
-        yield return new WaitForSeconds(0.6f); // 화살 발사와 적중 대기
+        float deadline = Time.time + 2f; // 화살 적중의 최대 시험 대기 시간
+        while (!player.Dead && Time.time < deadline) // 실제 적중 또는 시간 초과까지 대기
+        {
+            yield return null; // 다음 전투 프레임 대기
+        }
         Assert.That(player.Dead, Is.True); // 적 화살 피해로 플레이어 사망
         Assert.That(GameObject.Find("Game Over"), Is.Not.Null); // 사망 화면 활성화
     }

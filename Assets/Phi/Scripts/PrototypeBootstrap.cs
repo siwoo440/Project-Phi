@@ -302,7 +302,7 @@ namespace Phi // 프로토타입 영역
                 Fighter fighter = slimeObject.AddComponent<Fighter>(); // 슬라임 체력 상태
                 fighter.Initialize(runtimeSettings.slimeHealth, runtimeSettings.slimeDefense); // 슬라임 능력치 설정
                 fighter.Died += SpawnSlimeLoot; // 슬라임 사망 전이의 시험 전리품 연결
-                slimes.Add(new Slime(fighter)); // 슬라임 행동 상태 추가
+                slimes.Add(new Slime(fighter, MoveWithinWalls)); // 슬라임 행동 상태 추가
                 enemies.Add(fighter); // 공통 공격 대상에 슬라임 등록
             }
             for (int index = 0; index < Mathf.Max(0, runtimeSettings.goblinCount); index++) // 시험 고블린 생성 반복
@@ -321,7 +321,7 @@ namespace Phi // 프로토타입 영역
                 GameObject weapon = Shape("Goblin Weapon", position, new Vector2(0.18f, 0.8f), new Color(0.95f, 0.9f, 0.6f), 2); // 근접 베기 예고용 무기
                 weapon.transform.SetParent(goblinObject.transform, false); // 고블린에 무기 표시 연결
                 weapon.transform.localPosition = new Vector3(0.55f, 0.05f, 0f); // 본체 옆 무기 위치
-                goblins.Add(new Goblin(goblinFighter, weapon.transform)); // 독립 고블린 행동 등록
+                goblins.Add(new Goblin(goblinFighter, weapon.transform, MoveWithinWalls)); // 독립 고블린 행동 등록
                 enemies.Add(goblinFighter); // 공통 공격 대상에 고블린 등록
             }
             for (int index = 0; index < Mathf.Max(0, runtimeSettings.skeletonCount); index++) // 시험 스켈레톤 궁수 생성
@@ -329,14 +329,14 @@ namespace Phi // 프로토타입 영역
                 float angle = Mathf.PI * 0.5f + index * Mathf.PI * 2f / Mathf.Max(1, runtimeSettings.skeletonCount); // 궁수 배치 각도
                 Fighter fighter = CreateAdditionalEnemy("Skeleton " + (index + 1), mapCenter, angle, new Color(0.82f, 0.82f, 0.9f), runtimeSettings.skeletonHealth, runtimeSettings.skeletonDefense); // 궁수 도형과 기획 능력치
                 Transform bow = CreateEnemyVisual(fighter, "Skeleton Bow", new Vector2(0.15f, 0.8f), new Color(0.65f, 0.45f, 0.2f)); // 궁수 활 예고 표시
-                skeletons.Add(new SkeletonArcher(fighter, bow)); // 독립 궁수 행동 등록
+                skeletons.Add(new SkeletonArcher(fighter, bow, MoveWithinWalls)); // 독립 궁수 행동 등록
             }
             for (int index = 0; index < Mathf.Max(0, runtimeSettings.orcCount); index++) // 시험 오크 전사 생성
             {
                 float angle = Mathf.PI + index * Mathf.PI * 2f / Mathf.Max(1, runtimeSettings.orcCount); // 오크 배치 각도
                 Fighter fighter = CreateAdditionalEnemy("Orc " + (index + 1), mapCenter, angle, new Color(0.45f, 0.5f, 0.2f), runtimeSettings.orcHealth, runtimeSettings.orcDefense); // 오크 도형과 기획 능력치
                 Transform axe = CreateEnemyVisual(fighter, "Orc Axe", new Vector2(0.3f, 0.9f), new Color(0.7f, 0.7f, 0.75f)); // 오크 도끼 예고 표시
-                orcs.Add(new OrcWarrior(fighter, axe)); // 독립 오크 행동 등록
+                orcs.Add(new OrcWarrior(fighter, axe, MoveWithinWalls)); // 독립 오크 행동 등록
             }
             for (int index = 0; index < Mathf.Max(0, runtimeSettings.wolfCount); index++) // 시험 늑대 생성
             {
@@ -344,7 +344,7 @@ namespace Phi // 프로토타입 영역
                 Fighter fighter = CreateAdditionalEnemy("Wolf " + (index + 1), mapCenter, angle, new Color(0.5f, 0.5f, 0.55f), runtimeSettings.wolfHealth, runtimeSettings.wolfDefense); // 늑대 도형과 기획 능력치
                 GameObject path = Shape("Wolf Path", fighter.transform.position, Vector2.one, new Color(1f, 0.35f, 0.2f, 0.65f), 3); // 늑대 도약 경로 예고
                 path.transform.SetParent(fighter.transform, false); // 늑대에 경로 표시 연결
-                wolves.Add(new Wolf(fighter, path.transform)); // 독립 늑대 행동 등록
+                wolves.Add(new Wolf(fighter, path.transform, MoveWithinWalls)); // 독립 늑대 행동 등록
             }
         }
 
@@ -378,7 +378,71 @@ namespace Phi // 프로토타입 영역
                 return; // 화면 입력 중 플레이어 이동 차단
             }
             Vector2 movement = MovementInput() * runtimeSettings.playerSpeed * Time.deltaTime; // 정규화 이동량
-            player.transform.position = mapRegion.ClampPosition((Vector2)player.transform.position + movement, PrototypeSettings.PlayerRadius); // 경계 안의 플레이어 위치 변경
+            player.transform.position = MoveWithinWalls(player.transform.position, movement, PrototypeSettings.PlayerRadius, true); // 장애물을 피한 플레이어 이동
+        }
+
+        private Vector2 MoveWithinWalls(Vector2 start, Vector2 movement, float radius, bool slide) // 벽과 경계를 고려한 이동
+        {
+            if (!combatLayersReady || movement.sqrMagnitude <= 0.0000000001f) // 충돌 계층 또는 이동량 확인
+            {
+                return start; // 안전하지 않거나 불필요한 이동 제외
+            }
+            Vector2 current = start; // 현재 검사 위치
+            Vector2 remaining = mapRegion.ClampPosition(start + movement, radius) - start; // 씬 경계 안의 이동량
+            Vector2 size = Vector2.one * (radius * 2f); // 이동 도형의 검사 크기
+            for (int pass = 0; pass < 3 && remaining.sqrMagnitude > 0.0000000001f; pass++) // 접촉면을 따른 제한된 이동 반복
+            {
+                Physics2D.SyncTransforms(); // 변경된 장애물 위치 반영
+                Vector2 direction = remaining.normalized; // 현재 이동 방향
+                float requested = remaining.magnitude; // 현재 이동 거리
+                float distance = requested; // 벽에 닿기 전 이동 거리
+                Vector2 normal = Vector2.zero; // 이동을 막은 접촉면 법선
+                dodgeOverlaps.Clear(); // 이전 시작점 충돌 결과 제거
+                dodgeSafeContacts.Clear(); // 이전 접촉 법선 제거
+                dodgeContactGaps.Clear(); // 이전 접촉 간격 제거
+                Physics2D.OverlapBox(current, size, 0f, swordOcclusionFilter, dodgeOverlaps); // 시작 도형과 장애물 겹침 검사
+                if (DodgeStartsInsideObstacle(current, size)) // 실제 장애물 침투 여부
+                {
+                    return current; // 불확실한 내부 이동 차단
+                }
+                foreach (KeyValuePair<Collider2D, Vector2> contact in dodgeSafeContacts) // 안전한 접촉 후보 순회
+                {
+                    float approach = Vector2.Dot(direction, contact.Value); // 접촉면으로 향하는 비율
+                    if (approach > 0.0001f) // 벽에 접근하는 이동 여부
+                    {
+                        float allowed = Mathf.Max(0f, dodgeContactGaps[contact.Key]) / approach; // 실제 접촉면까지 거리
+                        if (allowed < distance) // 더 가까운 접촉면 여부
+                        {
+                            distance = allowed; // 접촉면 앞 이동 제한
+                            normal = -contact.Value; // 벽 바깥 방향 법선
+                        }
+                    }
+                }
+                dodgeHits.Clear(); // 이전 이동 경로 결과 제거
+                Physics2D.BoxCast(current, size, 0f, direction, swordOcclusionFilter, dodgeHits, requested); // 전체 경로의 연속 충돌 검사
+                foreach (RaycastHit2D hit in dodgeHits) // 경로의 장애물 순회
+                {
+                    if (hit.distance <= 0.00001f && dodgeSafeContacts.TryGetValue(hit.collider, out Vector2 contact) && Vector2.Dot(direction, contact) <= 0.0001f) // 안전한 접촉면의 이탈 또는 접선 이동
+                    {
+                        continue; // 벽을 향하지 않는 접촉 무시
+                    }
+                    float allowed = Mathf.Max(0f, hit.distance - 0.0001f); // 장애물 앞의 작은 여유
+                    if (allowed < distance) // 더 가까운 장애물 여부
+                    {
+                        distance = allowed; // 가장 가까운 장애물까지 제한
+                        normal = hit.normal; // 충돌면의 바깥 법선
+                    }
+                }
+                current += direction * distance; // 벽 앞까지의 실제 이동
+                if (!slide || normal.sqrMagnitude < 0.000001f || distance >= requested - 0.000001f) // 미끄러짐 불필요 여부
+                {
+                    break; // 이동 검사 종료
+                }
+                Vector2 rest = remaining - direction * distance; // 벽 접촉 후 남은 이동량
+                float intoWall = Vector2.Dot(rest, normal); // 벽 안쪽 방향 이동량
+                remaining = intoWall < 0f ? rest - normal * intoWall : Vector2.zero; // 벽을 따른 접선 이동량
+            }
+            return mapRegion.ClampPosition(current, radius); // 씬 경계 안의 최종 위치
         }
 
         private static Vector2 MovementInput() // 현재 WASD 이동 방향
@@ -1541,10 +1605,12 @@ namespace Phi // 프로토타입 영역
         private float dashRemaining; // 남은 돌진 거리
         private Vector2 dashDirection; // 고정 돌진 방향
         private bool hitDuringDash; // 돌진 중 중복 피해 방지
+        private readonly System.Func<Vector2, Vector2, float, bool, Vector2> move; // 공통 장애물 이동
 
-        public Slime(Fighter fighter) // 슬라임 상태 생성
+        public Slime(Fighter fighter, System.Func<Vector2, Vector2, float, bool, Vector2> move) // 슬라임 상태 생성
         {
             Fighter = fighter; // 전투 상태 저장
+            this.move = move; // 공통 장애물 이동 보관
         }
 
         public void Tick(Fighter player, PrototypeSettings settings, MapRegion mapRegion) // 슬라임 행동 갱신
@@ -1554,10 +1620,10 @@ namespace Phi // 프로토타입 영역
             {
                 float step = Mathf.Min(dashRemaining, Mathf.Max(0.01f, settings.slimeDashSpeed) * Time.deltaTime); // 돌진 이동량
                 Vector2 start = Fighter.transform.position; // 돌진 이동 전 위치
-                Vector2 end = mapRegion.ClampPosition(start + dashDirection * step, PrototypeSettings.SlimeRadius); // 경계 안의 돌진 도착 위치
+                Vector2 end = move(start, dashDirection * step, PrototypeSettings.SlimeRadius, false); // 벽과 경계 안의 돌진 도착 위치
                 Vector2 movement = end - start; // 실제 돌진 이동 벡터
                 Fighter.transform.position = end; // 경계 안의 돌진 이동
-                dashRemaining -= step; // 남은 돌진 거리 갱신
+                dashRemaining = movement.sqrMagnitude < step * step - 0.000001f ? 0f : Mathf.Max(0f, dashRemaining - step); // 벽 충돌 또는 남은 돌진 거리
                 float fraction = movement.sqrMagnitude > 0f ? Mathf.Clamp01(Vector2.Dot((Vector2)player.transform.position - start, movement) / movement.sqrMagnitude) : 0f; // 이동 경로상 최근접 위치 비율
                 Vector2 closest = start + movement * fraction; // 플레이어와 가장 가까운 경로 지점
                 if (!hitDuringDash && Vector2.Distance(closest, player.transform.position) <= settings.slimeHitDistance) // 돌진 이동 경로 적중 검사
@@ -1589,7 +1655,7 @@ namespace Phi // 프로토타입 영역
             if (offset.magnitude > settings.slimeAttackRange * 0.8f) // 적정 거리 밖 확인
             {
                 Vector2 movement = offset.normalized * Mathf.Min(settings.slimeSpeed * Time.deltaTime, offset.magnitude); // 플레이어 방향 접근 이동량
-                Fighter.transform.position = mapRegion.ClampPosition((Vector2)Fighter.transform.position + movement, PrototypeSettings.SlimeRadius); // 경계 안의 접근 위치
+                Fighter.transform.position = move(Fighter.transform.position, movement, PrototypeSettings.SlimeRadius, true); // 벽과 경계 안의 접근 위치
             }
         }
     }

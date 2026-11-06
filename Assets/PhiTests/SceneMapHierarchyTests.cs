@@ -70,6 +70,21 @@ public class SceneMapHierarchyTests // 저장된 맵 구성 검증
         Assert.That(edges[3].bounds.max.y, Is.GreaterThanOrEqualTo(top)); // 오른쪽 벽의 위쪽 연결
     }
 
+    [Test] // 저장된 내부 장애물 사례
+    public void InternalWallExistsInHierarchyBeforePlay() // 씬에 저장된 내부 벽 검증
+    {
+        GameObject map = FindRoot("Map"); // 저장된 맵 루트
+        Assert.That(map, Is.Not.Null); // 맵 루트 존재 확인
+        Transform wall = map.transform.Find("Map Floor/Internal Wall"); // 바닥 하이어라키의 내부 벽
+        Assert.That(wall, Is.Not.Null); // 플레이 전 벽 오브젝트 존재 확인
+        Assert.That(wall.gameObject.layer, Is.EqualTo(LayerMask.NameToLayer("PhiObstacle"))); // 장애물 충돌 계층
+        AssertRenderer(wall.GetComponent<SpriteRenderer>()); // 눈에 보이는 벽 그림
+        BoxCollider2D collider = wall.GetComponent<BoxCollider2D>(); // 저장된 벽 충돌체
+        Assert.That(collider, Is.Not.Null); // 내부 벽 충돌체 존재
+        Assert.That(collider.enabled, Is.True); // 벽 충돌체 활성화
+        Assert.That(collider.isTrigger, Is.False); // 이동과 공격을 막는 벽 설정
+    }
+
     [Test] // 저장된 바닥 참조 사례
     public void BootstrapReferencesSceneFloor() // 전투 구성 요소의 맵 연결 검증
     {

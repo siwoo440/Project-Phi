@@ -9,16 +9,18 @@ namespace Phi // 도약형 적 행동 영역
             get; // 늑대 체력 상태 읽기
         }
         private readonly Transform path; // 도약 경로 예고 표시
+        private readonly System.Func<Vector2, Vector2, float, bool, Vector2> move; // 공통 장애물 이동
         private float nextAttack; // 다음 공격 가능 시각
         private float windupUntil; // 도약 예고 종료 시각
         private float leapRemaining; // 남은 도약 거리
         private Vector2 leapDirection; // 예고 시 고정한 도약 방향
         private bool hitDuringLeap; // 한 도약의 중복 피해 방지
 
-        public Wolf(Fighter fighter, Transform path) // 늑대 행동 상태 생성
+        public Wolf(Fighter fighter, Transform path, System.Func<Vector2, Vector2, float, bool, Vector2> move) // 늑대 행동 상태 생성
         {
             Fighter = fighter; // 늑대 전투 상태 보관
             this.path = path; // 경로 표시 보관
+            this.move = move; // 공통 장애물 이동 보관
             path.gameObject.SetActive(false); // 평상시 경로 표시 숨김
             Fighter.Died += HidePath; // 사망 시 경로 표시 정리
         }
@@ -31,9 +33,9 @@ namespace Phi // 도약형 적 행동 영역
                 Vector2 start = Fighter.transform.position; // 도약 이동 전 위치
                 float requested = Mathf.Min(leapRemaining, Mathf.Max(0.01f, settings.wolfLeapSpeed) * Time.deltaTime); // 이번 프레임의 도약 거리
                 float step = Mathf.Min(requested, BoundaryDistance(start, leapDirection, mapRegion.Interior)); // 씬 경계 안의 직선 이동 거리
-                Vector2 end = start + leapDirection * step; // 고정 경로의 도약 도착점
+                Vector2 end = move(start, leapDirection * step, PrototypeSettings.SlimeRadius, false); // 벽과 경계 안의 도약 도착점
                 Fighter.transform.position = end; // 경계 안의 늑대 위치
-                leapRemaining = step < requested - 0.000001f ? 0f : Mathf.Max(0f, leapRemaining - step); // 경계 충돌 또는 남은 도약 거리
+                leapRemaining = step < requested - 0.000001f || (end - start).sqrMagnitude < step * step - 0.000001f ? 0f : Mathf.Max(0f, leapRemaining - step); // 벽 충돌 또는 남은 도약 거리
                 Vector2 movement = end - start; // 실제 도약 이동 벡터
                 float fraction = movement.sqrMagnitude > 0f ? Mathf.Clamp01(Vector2.Dot((Vector2)player.transform.position - start, movement) / movement.sqrMagnitude) : 0f; // 이동 경로상 최근접 위치
                 Vector2 closest = start + movement * fraction; // 플레이어와 가장 가까운 도약 경로점
@@ -62,7 +64,9 @@ namespace Phi // 도약형 적 행동 영역
                 leapDirection = offset.sqrMagnitude > 0.000001f ? offset.normalized : Vector2.right; // 예고 당시의 고정 도약 방향
                 windupUntil = Time.time + Mathf.Max(0.01f, settings.wolfWindup); // 도약 예고 종료 시각
                 nextAttack = Time.time + Mathf.Max(0.01f, Mathf.Max(settings.wolfAttackInterval, settings.wolfWindup)); // 다음 도약 가능 시각
-                float preview = Mathf.Min(Mathf.Max(0f, settings.wolfLeapDistance), BoundaryDistance(Fighter.transform.position, leapDirection, mapRegion.Interior)); // 씬 경계 안의 예고 길이
+                float planned = Mathf.Min(Mathf.Max(0f, settings.wolfLeapDistance), BoundaryDistance(Fighter.transform.position, leapDirection, mapRegion.Interior)); // 씬 경계 안의 도약 거리
+                Vector2 previewEnd = move(Fighter.transform.position, leapDirection * planned, PrototypeSettings.SlimeRadius, false); // 벽 앞의 예고 종료 위치
+                float preview = Vector2.Distance(Fighter.transform.position, previewEnd); // 실제 도약 가능한 예고 길이
                 Fighter.transform.localScale = new Vector3(0.7f, 0.5f, 1f); // 도약 전 몸을 낮추는 예고
                 Vector2 localPath = new Vector2(leapDirection.x * preview / 0.7f, leapDirection.y * preview / 0.5f); // 낮아진 본체 기준의 경로 벡터
                 path.localPosition = (Vector3)(localPath * 0.5f); // 늑대 중심에서 경로 중앙 위치
@@ -74,7 +78,7 @@ namespace Phi // 도약형 적 행동 영역
             if (offset.magnitude > range * 0.8f) // 도약 거리 밖 확인
             {
                 float step = Mathf.Min(Mathf.Max(0f, settings.wolfSpeed) * Time.deltaTime, offset.magnitude); // 플레이어 방향 추격 거리
-                Fighter.transform.position = mapRegion.ClampPosition((Vector2)Fighter.transform.position + offset.normalized * step, PrototypeSettings.SlimeRadius); // 씬 경계 안의 추격
+                Fighter.transform.position = move(Fighter.transform.position, offset.normalized * step, PrototypeSettings.SlimeRadius, true); // 씬 경계 안의 추격
             }
         }
 
