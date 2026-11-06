@@ -23,6 +23,11 @@ namespace Phi // 프로토타입 영역
         private bool attackPressed; // 이번 입력 처리의 클릭 시작
         private bool pressActive; // 유효한 클릭 유지
         private InputAction attackAction; // 클릭 시작 이벤트
+        private int playerLayer; // 플레이어 충돌 계층 번호
+        private int enemyLayer; // 적 충돌 계층 번호
+        private bool combatLayersReady; // 전투 계층 준비 여부
+        private ContactFilter2D swordOcclusionFilter; // 검 장애물 충돌 필터
+        private readonly RaycastHit2D[] swordOcclusionHits = new RaycastHit2D[1]; // 검 장애물 판정 결과
         private Sprite square; // 임시 사각형 그림
         private Vector2 aim = Vector2.right; // 마지막 조준 방향
 
@@ -30,12 +35,29 @@ namespace Phi // 프로토타입 영역
         {
             runtimeSettings = settings != null ? settings : ScriptableObject.CreateInstance<PrototypeSettings>(); // 설정이 없을 때 기본값 사용
             square = Sprite.Create(Texture2D.whiteTexture, new Rect(0f, 0f, 1f, 1f), new Vector2(0.5f, 0.5f), 1f); // 임시 도형 생성
+            InitializeCombatLayers(); // 전투 계층과 벽 판정 준비
             CreateCamera(); // 카메라 준비
             CreateWorld(); // 플레이어와 적 준비
             CreateInterface(); // 체력과 재시작 화면 준비
             attackAction = new InputAction(type: InputActionType.Button, binding: "<Mouse>/leftButton"); // 클릭 이벤트 구성
             attackAction.performed += OnAttackPressed; // 클릭 시작 콜백 연결
             attackAction.Enable(); // 클릭 이벤트 활성화
+        }
+
+        private void InitializeCombatLayers() // 전투 계층과 검 장애물 필터 설정
+        {
+            int obstacleLayer = LayerMask.NameToLayer("PhiObstacle"); // 벽 충돌 계층 번호
+            playerLayer = LayerMask.NameToLayer("PhiPlayer"); // 플레이어 충돌 계층 번호
+            enemyLayer = LayerMask.NameToLayer("PhiEnemy"); // 적 충돌 계층 번호
+            combatLayersReady = obstacleLayer >= 0 && playerLayer >= 0 && enemyLayer >= 0; // 필수 계층 존재 여부
+            if (!combatLayersReady) // 전투 계층 누락 여부
+            {
+                Debug.LogError("전투 충돌 계층 PhiObstacle, PhiPlayer, PhiEnemy가 필요합니다."); // 설정 오류 표시
+                return; // 잘못된 벽 판정 방지
+            }
+            swordOcclusionFilter = new ContactFilter2D(); // 검 장애물 검사 필터
+            swordOcclusionFilter.SetLayerMask(1 << obstacleLayer); // 장애물 계층만 선택
+            swordOcclusionFilter.useTriggers = false; // 트리거 충돌체 제외
         }
 
         private void Update() // 매 프레임 입력과 전투 처리
@@ -104,6 +126,10 @@ namespace Phi // 프로토타입 영역
         {
             CreateBoundary(); // 시험 공간 경계 표시
             GameObject playerObject = Shape("Player", Vector2.zero, new Vector2(0.7f, 0.7f), new Color(0.3f, 0.65f, 1f), 2); // 플레이어 임시 도형
+            if (combatLayersReady) // 전투 계층 준비 여부
+            {
+                playerObject.layer = playerLayer; // 플레이어 충돌 계층 지정
+            }
             player = playerObject.AddComponent<Fighter>(); // 플레이어 체력 상태
             player.Initialize(runtimeSettings.playerHealth, runtimeSettings.playerDefense); // 플레이어 능력치 설정
             aimMarker = Shape("Aim", Vector2.zero, new Vector2(0.8f, 0.12f), Color.white, 3); // 조준 방향 표시
@@ -112,6 +138,10 @@ namespace Phi // 프로토타입 영역
                 float angle = index * Mathf.PI * 2f / Mathf.Max(1, runtimeSettings.slimeCount); // 배치 각도
                 Vector2 position = runtimeSettings.ClampPosition(new Vector2(Mathf.Cos(angle), Mathf.Sin(angle)) * 4f, PrototypeSettings.SlimeRadius); // 경계 안의 배치 위치
                 GameObject slimeObject = Shape("Slime " + (index + 1), position, new Vector2(0.65f, 0.65f), new Color(0.35f, 0.9f, 0.35f), 1); // 슬라임 도형
+                if (combatLayersReady) // 전투 계층 준비 여부
+                {
+                    slimeObject.layer = enemyLayer; // 적 충돌 계층 지정
+                }
                 Fighter fighter = slimeObject.AddComponent<Fighter>(); // 슬라임 체력 상태
                 fighter.Initialize(runtimeSettings.slimeHealth, runtimeSettings.slimeDefense); // 슬라임 능력치 설정
                 slimes.Add(new Slime(fighter)); // 슬라임 행동 상태 추가
@@ -235,10 +265,15 @@ namespace Phi // 프로토타입 영역
 
         private void Attack() // 검 부채꼴 공격
         {
+            if (!combatLayersReady) // 충돌 계층 누락 여부
+            {
+                return; // 장애물 검사가 불가능한 공격 차단
+            }
+            Physics2D.SyncTransforms(); // 변경된 장애물 위치의 물리 반영
             List<Fighter> targets = new List<Fighter>(); // 이번 공격의 대상 목록
             foreach (Slime slime in slimes) // 각 슬라임 검사
             {
-                if (!slime.Fighter.Dead && CombatMath.InSwordSector(player.transform.position, aim, slime.Fighter.transform.position, runtimeSettings.swordRange, runtimeSettings.swordAngle)) // 생존과 부채꼴 판정
+                if (!slime.Fighter.Dead && CombatMath.InSwordSector(player.transform.position, aim, slime.Fighter.transform.position, runtimeSettings.swordRange, runtimeSettings.swordAngle) && Physics2D.Linecast(player.transform.position, slime.Fighter.transform.position, swordOcclusionFilter, swordOcclusionHits) == 0) // 생존과 부채꼴 및 벽 차단 판정
                 {
                     targets.Add(slime.Fighter); // 고유 대상 추가
                 }
