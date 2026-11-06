@@ -16,6 +16,8 @@ MonoBehaviour:
   playerAttack: 10
   playerDefense: 5
   playerSpeed: 4
+  mapHalfWidth: 10
+  mapHalfHeight: 6
   swordAttack: 12
   swordInterval: 0.55
   swordRange: 1.7
@@ -32,3 +34,4 @@ MonoBehaviour:
   slimeDashSpeed: 5
   slimeHitDistance: 0.65
   slimeCount: 3
+

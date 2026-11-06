@@ -60,8 +60,15 @@ namespace Phi // 프로토타입 영역
         {
             if (player != null && gameCamera != null) // 추적 대상 확인
             {
+                float width = Mathf.Max(PrototypeSettings.MinimumMapHalfSize, runtimeSettings.mapHalfWidth); // 시험 공간 가로 반경
+                float height = Mathf.Max(PrototypeSettings.MinimumMapHalfSize, runtimeSettings.mapHalfHeight); // 시험 공간 세로 반경
+                float aspect = Mathf.Max(0.01f, gameCamera.aspect); // 유효한 화면 가로세로 비율
+                gameCamera.orthographicSize = Mathf.Min(6f, height, width / aspect); // 맵을 벗어나지 않는 세로 시야
+                float halfViewWidth = gameCamera.orthographicSize * aspect; // 카메라 가로 시야 반경
+                float limitX = Mathf.Max(0f, width - halfViewWidth); // 카메라 가로 중심 한계
+                float limitY = Mathf.Max(0f, height - gameCamera.orthographicSize); // 카메라 세로 중심 한계
                 Vector3 position = player.transform.position; // 플레이어 위치
-                gameCamera.transform.position = new Vector3(position.x, position.y, -10f); // 카메라 위치 갱신
+                gameCamera.transform.position = new Vector3(Mathf.Clamp(position.x, -limitX, limitX), Mathf.Clamp(position.y, -limitY, limitY), -10f); // 맵 내부 카메라 추적
             }
         }
 
@@ -95,6 +102,7 @@ namespace Phi // 프로토타입 영역
 
         private void CreateWorld() // 전투 대상 생성
         {
+            CreateBoundary(); // 시험 공간 경계 표시
             GameObject playerObject = Shape("Player", Vector2.zero, new Vector2(0.7f, 0.7f), new Color(0.3f, 0.65f, 1f), 2); // 플레이어 임시 도형
             player = playerObject.AddComponent<Fighter>(); // 플레이어 체력 상태
             player.Initialize(runtimeSettings.playerHealth, runtimeSettings.playerDefense); // 플레이어 능력치 설정
@@ -102,12 +110,24 @@ namespace Phi // 프로토타입 영역
             for (int index = 0; index < Mathf.Max(0, runtimeSettings.slimeCount); index++) // 시험 슬라임 생성 반복
             {
                 float angle = index * Mathf.PI * 2f / Mathf.Max(1, runtimeSettings.slimeCount); // 배치 각도
-                Vector2 position = new Vector2(Mathf.Cos(angle), Mathf.Sin(angle)) * 4f; // 배치 위치
+                Vector2 position = runtimeSettings.ClampPosition(new Vector2(Mathf.Cos(angle), Mathf.Sin(angle)) * 4f, PrototypeSettings.SlimeRadius); // 경계 안의 배치 위치
                 GameObject slimeObject = Shape("Slime " + (index + 1), position, new Vector2(0.65f, 0.65f), new Color(0.35f, 0.9f, 0.35f), 1); // 슬라임 도형
                 Fighter fighter = slimeObject.AddComponent<Fighter>(); // 슬라임 체력 상태
                 fighter.Initialize(runtimeSettings.slimeHealth, runtimeSettings.slimeDefense); // 슬라임 능력치 설정
                 slimes.Add(new Slime(fighter)); // 슬라임 행동 상태 추가
             }
+        }
+
+        private void CreateBoundary() // 시험 공간 테두리 생성
+        {
+            float width = Mathf.Max(PrototypeSettings.MinimumMapHalfSize, runtimeSettings.mapHalfWidth); // 가로 경계 반경
+            float height = Mathf.Max(PrototypeSettings.MinimumMapHalfSize, runtimeSettings.mapHalfHeight); // 세로 경계 반경
+            float thickness = PrototypeSettings.BoundaryThickness; // 임시 테두리 두께
+            Color color = new Color(0.65f, 0.74f, 0.68f); // 임시 테두리 색상
+            Shape("Boundary Top", new Vector2(0f, height - thickness * 0.5f), new Vector2(width * 2f, thickness), color, 0); // 위쪽 경계 표시
+            Shape("Boundary Bottom", new Vector2(0f, -height + thickness * 0.5f), new Vector2(width * 2f, thickness), color, 0); // 아래쪽 경계 표시
+            Shape("Boundary Left", new Vector2(-width + thickness * 0.5f, 0f), new Vector2(thickness, height * 2f), color, 0); // 왼쪽 경계 표시
+            Shape("Boundary Right", new Vector2(width - thickness * 0.5f, 0f), new Vector2(thickness, height * 2f), color, 0); // 오른쪽 경계 표시
         }
 
         private void ReadMovement() // 키보드 이동
@@ -119,7 +139,7 @@ namespace Phi // 프로토타입 영역
             }
             Vector2 input = new Vector2((keyboard.dKey.isPressed ? 1f : 0f) - (keyboard.aKey.isPressed ? 1f : 0f), (keyboard.wKey.isPressed ? 1f : 0f) - (keyboard.sKey.isPressed ? 1f : 0f)); // WASD 방향
             Vector2 movement = CombatMath.NormalizeMovement(input) * runtimeSettings.playerSpeed * Time.deltaTime; // 정규화 이동량
-            player.transform.position += (Vector3)movement; // 플레이어 위치 변경
+            player.transform.position = runtimeSettings.ClampPosition((Vector2)player.transform.position + movement, PrototypeSettings.PlayerRadius); // 경계 안의 플레이어 위치 변경
         }
 
         private void ReadAimAndAttack() // 마우스 조준과 공격
@@ -135,8 +155,7 @@ namespace Phi // 프로토타입 영역
             {
                 aim = direction.normalized; // 조준 방향 저장
             }
-            aimMarker.transform.position = player.transform.position + (Vector3)(aim * 0.75f); // 조준 표시 위치
-            aimMarker.transform.rotation = Quaternion.Euler(0f, 0f, Mathf.Atan2(aim.y, aim.x) * Mathf.Rad2Deg); // 조준 표시 각도
+            UpdateAimMarker(); // 경계 안의 조준 표시 갱신
             if ((attackPressed || (pressActive && mouse.leftButton.isPressed)) && !blockedPress && !PointerOverUi(mouse.position.ReadValue()) && Time.time >= nextAttack) // 짧은 클릭과 홀드 공격 검사
             {
                 Attack(); // 검 공격
@@ -150,6 +169,36 @@ namespace Phi // 프로토타입 영역
             }
         }
 
+        private void UpdateAimMarker() // 조준 표시의 경계 제한
+        {
+            Vector2 origin = player.transform.position; // 플레이어 중심 좌표
+            float markerWidth = 0.12f; // 조준 표시 두께
+            float mapWidth = Mathf.Max(PrototypeSettings.MinimumMapHalfSize, runtimeSettings.mapHalfWidth); // 공간 가로 반경
+            float mapHeight = Mathf.Max(PrototypeSettings.MinimumMapHalfSize, runtimeSettings.mapHalfHeight); // 공간 세로 반경
+            float limitX = Mathf.Max(0f, mapWidth - PrototypeSettings.BoundaryThickness - markerWidth * 0.5f * Mathf.Abs(aim.y)); // 두께를 포함한 가로 한계
+            float limitY = Mathf.Max(0f, mapHeight - PrototypeSettings.BoundaryThickness - markerWidth * 0.5f * Mathf.Abs(aim.x)); // 두께를 포함한 세로 한계
+            float length = 1.15f; // 기본 조준 표시 길이
+            if (aim.x > 0.0001f) // 오른쪽 조준 여부
+            {
+                length = Mathf.Min(length, (limitX - origin.x) / aim.x); // 오른쪽 경계까지의 길이
+            }
+            if (aim.x < -0.0001f) // 왼쪽 조준 여부
+            {
+                length = Mathf.Min(length, (-limitX - origin.x) / aim.x); // 왼쪽 경계까지의 길이
+            }
+            if (aim.y > 0.0001f) // 위쪽 조준 여부
+            {
+                length = Mathf.Min(length, (limitY - origin.y) / aim.y); // 위쪽 경계까지의 길이
+            }
+            if (aim.y < -0.0001f) // 아래쪽 조준 여부
+            {
+                length = Mathf.Min(length, (-limitY - origin.y) / aim.y); // 아래쪽 경계까지의 길이
+            }
+            length = Mathf.Max(0f, length); // 음수 길이 방지
+            aimMarker.transform.position = player.transform.position + (Vector3)(aim * (length * 0.5f)); // 플레이어 중심에서 표시 끝까지 위치
+            aimMarker.transform.localScale = new Vector3(length, markerWidth, 1f); // 남은 공간에 맞춘 표시 길이
+            aimMarker.transform.rotation = Quaternion.Euler(0f, 0f, Mathf.Atan2(aim.y, aim.x) * Mathf.Rad2Deg); // 조준 표시 방향
+        }
         private void OnAttackPressed(InputAction.CallbackContext context) // 클릭 입력 이벤트 처리
         {
             Mouse mouse = Mouse.current; // 클릭 장치 확인
@@ -320,7 +369,7 @@ namespace Phi // 프로토타입 영역
             bodyColor = body.color; // 기본 색상 보관
             GameObject bar = new GameObject("Health Bar"); // 체력 막대 오브젝트
             bar.transform.SetParent(transform, false); // 대상 위치에 막대 연결
-            bar.transform.localPosition = new Vector3(0f, 0.8f, 0f); // 대상 위 막대 위치
+            bar.transform.localPosition = new Vector3(0f, 0.38f, 0f); // 본체 상단 안쪽 막대 위치
             bar.transform.localScale = new Vector3(1f, 0.12f, 1f); // 초기 막대 크기
             healthBar = bar.AddComponent<SpriteRenderer>(); // 막대 표시기
             healthBar.sprite = body.sprite; // 임시 사각형 그림 공유
@@ -346,7 +395,7 @@ namespace Phi // 프로토타입 영역
             Health = Mathf.Max(0, Health - Mathf.Max(0, damage)); // 체력 감소
             float ratio = (float)Health / maximumHealth; // 남은 체력 비율
             healthBar.transform.localScale = new Vector3(ratio, 0.12f, 1f); // 체력 막대 길이 갱신
-            healthBar.transform.localPosition = new Vector3((ratio - 1f) * 0.5f, 0.8f, 0f); // 막대 왼쪽 기준 정렬
+            healthBar.transform.localPosition = new Vector3((ratio - 1f) * 0.5f, 0.38f, 0f); // 막대 왼쪽 기준 정렬
             if (Dead) // 사망 처리
             {
                 body.color = new Color(0.25f, 0.25f, 0.25f, 0.45f); // 사망 도형 표시
@@ -381,9 +430,10 @@ namespace Phi // 프로토타입 영역
             {
                 float step = Mathf.Min(dashRemaining, Mathf.Max(0.01f, settings.slimeDashSpeed) * Time.deltaTime); // 돌진 이동량
                 Vector2 start = Fighter.transform.position; // 돌진 이동 전 위치
-                Vector2 movement = dashDirection * step; // 돌진 이동 벡터
-                Fighter.transform.position += (Vector3)movement; // 돌진 이동
-                dashRemaining -= step; // 남은 거리 갱신
+                Vector2 end = settings.ClampPosition(start + dashDirection * step, PrototypeSettings.SlimeRadius); // 경계 안의 돌진 도착 위치
+                Vector2 movement = end - start; // 실제 돌진 이동 벡터
+                Fighter.transform.position = end; // 경계 안의 돌진 이동
+                dashRemaining -= step; // 남은 돌진 거리 갱신
                 float fraction = movement.sqrMagnitude > 0f ? Mathf.Clamp01(Vector2.Dot((Vector2)player.transform.position - start, movement) / movement.sqrMagnitude) : 0f; // 이동 경로상 최근접 위치 비율
                 Vector2 closest = start + movement * fraction; // 플레이어와 가장 가까운 경로 지점
                 if (!hitDuringDash && Vector2.Distance(closest, player.transform.position) <= settings.slimeHitDistance) // 돌진 이동 경로 적중 검사
@@ -414,11 +464,17 @@ namespace Phi // 프로토타입 영역
             }
             if (offset.magnitude > settings.slimeAttackRange * 0.8f) // 적정 거리 밖 확인
             {
-                Fighter.transform.position += (Vector3)(offset.normalized * Mathf.Min(settings.slimeSpeed * Time.deltaTime, offset.magnitude)); // 플레이어에게 접근
+                Vector2 movement = offset.normalized * Mathf.Min(settings.slimeSpeed * Time.deltaTime, offset.magnitude); // 플레이어 방향 접근 이동량
+                Fighter.transform.position = settings.ClampPosition((Vector2)Fighter.transform.position + movement, PrototypeSettings.SlimeRadius); // 경계 안의 접근 위치
             }
         }
     }
 }
+
+
+
+
+
 
 
 
