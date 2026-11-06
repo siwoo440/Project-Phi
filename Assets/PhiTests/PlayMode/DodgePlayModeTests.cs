@@ -643,7 +643,14 @@ public class DodgePlayModeTests // 실제 회피 입력과 전투 검증
         trial.slimeDashSpeed = 10000f; // 한 번의 처리로 지나는 돌진 속도
         trial.slimeHitDistance = 1f; // 안정적인 시험 적중 거리
         object map = typeof(PrototypeBootstrap).GetField("mapRegion", BindingFlags.Instance | BindingFlags.NonPublic).GetValue(bootstrap); // 실제 씬 경계 상태
-        type.GetMethod("Tick").Invoke(state, new object[] { player, trial, map }); // 실제 슬라임 행동 갱신
+        object[] arguments = // 슬라임 행동의 시험 인자
+        {
+            player, // 시험 플레이어
+            trial, // 시험 전투 설정
+            map, // 실제 씬 경계
+            true // 벽에 가리지 않은 시험 시야
+        }; // 시험 인자 목록
+        type.GetMethod("Tick").Invoke(state, arguments); // 실제 슬라임 행동 갱신
     }
 
     private IEnumerator AimAt(Vector2 world) // 화면 포인터로 시험 위치 조준

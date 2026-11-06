@@ -471,32 +471,32 @@ namespace Phi // 프로토타입 영역
             {
                 Fighter fighter = CreateAdditionalEnemy("Slime " + number, position, new Color(0.35f, 0.9f, 0.35f), runtimeSettings.slimeHealth, runtimeSettings.slimeDefense, 0.65f); // 슬라임 도형과 능력치
                 fighter.Died += SpawnSlimeLoot; // 슬라임 사망 전리품 연결
-                slimes.Add(new Slime(fighter, MoveWithinWalls)); // 슬라임 행동 등록
+                slimes.Add(new Slime(fighter, CreateEnemyMovement())); // 슬라임 행동과 독립 경로 등록
             }
             else if (species == EnemySpecies.Goblin) // 고블린 생성
             {
                 Fighter fighter = CreateAdditionalEnemy("Goblin " + number, position, new Color(0.85f, 0.45f, 0.25f), runtimeSettings.goblinHealth, runtimeSettings.goblinDefense); // 고블린 도형과 능력치
                 Transform weapon = CreateEnemyVisual(fighter, "Goblin Weapon", new Vector2(0.18f, 0.8f), new Color(0.95f, 0.9f, 0.6f)); // 고블린 무기 표시
-                goblins.Add(new Goblin(fighter, weapon, MoveWithinWalls)); // 고블린 행동 등록
+                goblins.Add(new Goblin(fighter, weapon, CreateEnemyMovement())); // 고블린 행동과 독립 경로 등록
             }
             else if (species == EnemySpecies.Skeleton) // 궁수 생성
             {
                 Fighter fighter = CreateAdditionalEnemy("Skeleton " + number, position, new Color(0.82f, 0.82f, 0.9f), runtimeSettings.skeletonHealth, runtimeSettings.skeletonDefense); // 궁수 도형과 능력치
                 Transform bow = CreateEnemyVisual(fighter, "Skeleton Bow", new Vector2(0.15f, 0.8f), new Color(0.65f, 0.45f, 0.2f)); // 궁수 활 표시
-                skeletons.Add(new SkeletonArcher(fighter, bow, MoveWithinWalls)); // 궁수 행동 등록
+                skeletons.Add(new SkeletonArcher(fighter, bow, CreateEnemyMovement(true))); // 궁수 행동과 후퇴 경로 등록
             }
             else if (species == EnemySpecies.Orc) // 오크 생성
             {
                 Fighter fighter = CreateAdditionalEnemy("Orc " + number, position, new Color(0.45f, 0.5f, 0.2f), runtimeSettings.orcHealth, runtimeSettings.orcDefense); // 오크 도형과 능력치
                 Transform axe = CreateEnemyVisual(fighter, "Orc Axe", new Vector2(0.3f, 0.9f), new Color(0.7f, 0.7f, 0.75f)); // 오크 도끼 표시
-                orcs.Add(new OrcWarrior(fighter, axe, MoveWithinWalls)); // 오크 행동 등록
+                orcs.Add(new OrcWarrior(fighter, axe, CreateEnemyMovement())); // 오크 행동과 독립 경로 등록
             }
             else if (species == EnemySpecies.Wolf) // 늑대 생성
             {
                 Fighter fighter = CreateAdditionalEnemy("Wolf " + number, position, new Color(0.5f, 0.5f, 0.55f), runtimeSettings.wolfHealth, runtimeSettings.wolfDefense); // 늑대 도형과 능력치
                 GameObject path = Shape("Wolf Path", fighter.transform.position, Vector2.one, new Color(1f, 0.35f, 0.2f, 0.65f), 3); // 늑대 도약 경로 표시
                 path.transform.SetParent(fighter.transform, false); // 늑대에 경로 연결
-                wolves.Add(new Wolf(fighter, path.transform, MoveWithinWalls)); // 늑대 행동 등록
+                wolves.Add(new Wolf(fighter, path.transform, CreateEnemyMovement())); // 늑대 행동과 독립 경로 등록
             }
         }
 
@@ -530,6 +530,31 @@ namespace Phi // 프로토타입 영역
             }
             Vector2 movement = MovementInput() * runtimeSettings.playerSpeed * Time.deltaTime; // 정규화 이동량
             player.transform.position = MoveWithinWalls(player.transform.position, movement, PrototypeSettings.PlayerRadius, true); // 장애물을 피한 플레이어 이동
+        }
+
+        private System.Func<Vector2, Vector2, float, bool, Vector2> CreateEnemyMovement(bool routeRetreat = false) // 개별 적의 장애물 우회 이동 준비
+        {
+            EnemyNavigator navigator = new EnemyNavigator(mapRegion, swordOcclusionFilter, MoveWithinWalls); // 개별 적의 독립 경로 상태
+            return (start, movement, radius, slide) => // 적 행동의 기존 이동 함수 연결
+            {
+                Vector2 target = player.transform.position; // 현재 플레이어 위치
+                if (!slide || movement.sqrMagnitude <= 0.0000000001f) // 직선 공격 또는 이동량 부재
+                {
+                    return MoveWithinWalls(start, movement, radius, slide); // 기존 돌진과 정지 충돌 유지
+                }
+                if (Vector2.Dot(movement, target - start) <= 0f) // 플레이어 반대 방향 이동
+                {
+                    if (!routeRetreat) // 경로 탐색이 아닌 특수 이동 여부
+                    {
+                        return MoveWithinWalls(start, movement, radius, slide); // 기존 특수 이동 충돌 유지
+                    }
+                    Vector2 away = (start - target).normalized; // 플레이어 반대 방향
+                    float separation = Mathf.Max(runtimeSettings.skeletonKeepDistance, Vector2.Distance(start, target) + movement.magnitude); // 궁수의 안전 거리 목표
+                    Vector2 retreatGoal = target + away * separation; // 후퇴할 목표 위치
+                    return navigator.Move(start, retreatGoal, movement.magnitude, radius); // 안전 거리까지 우회 후퇴
+                }
+                return navigator.Move(start, target, movement.magnitude, radius); // 목표까지 안전한 우회 접근
+            }; // 개별 적 이동 함수 반환
         }
 
         private Vector2 MoveWithinWalls(Vector2 start, Vector2 movement, float radius, bool slide) // 벽과 경계를 고려한 이동
@@ -1278,7 +1303,7 @@ namespace Phi // 프로토타입 영역
                 {
                     continue; // 사망 개체 행동 제외
                 }
-                slime.Tick(player, runtimeSettings, mapRegion); // 이동과 공격 처리
+                slime.Tick(player, runtimeSettings, mapRegion, EnemyCanSeePlayer(slime.Fighter, runtimeSettings.slimeSpeed)); // 시야를 반영한 이동과 공격
                 if (player.Dead) // 플레이어 사망 확인
                 {
                     SetEquipmentButtonsInteractable(false); // 사망 중 무기 버튼 비활성화
@@ -1300,7 +1325,7 @@ namespace Phi // 프로토타입 영역
                 {
                     continue; // 사망 개체 행동 제외
                 }
-                goblin.Tick(player, runtimeSettings, mapRegion, swordOcclusionFilter, swordOcclusionHits); // 빠른 접근과 근접 베기 처리
+                goblin.Tick(player, runtimeSettings, mapRegion, swordOcclusionFilter, swordOcclusionHits, EnemyCanSeePlayer(goblin.Fighter, runtimeSettings.goblinSpeed)); // 시야를 반영한 접근과 근접 베기
                 if (player.Dead) // 고블린 공격으로 플레이어 사망 여부
                 {
                     SetEquipmentButtonsInteractable(false); // 사망 중 무기 버튼 비활성화
@@ -1320,7 +1345,7 @@ namespace Phi // 프로토타입 영역
             {
                 if (skeleton.Fighter != null && !skeleton.Fighter.Dead) // 살아 있는 궁수 여부
                 {
-                    skeleton.Tick(player, runtimeSettings, mapRegion, LaunchEnemyArrow); // 거리 유지와 고정 방향 화살
+                    skeleton.Tick(player, runtimeSettings, mapRegion, LaunchEnemyArrow, EnemyCanSeePlayer(skeleton.Fighter, runtimeSettings.skeletonSpeed)); // 시야를 반영한 거리 유지와 화살
                 }
             }
             foreach (OrcWarrior orc in orcs) // 오크 전사 순회
@@ -1331,7 +1356,7 @@ namespace Phi // 프로토타입 영역
                 }
                 if (orc.Fighter != null && !orc.Fighter.Dead) // 살아 있는 오크 여부
                 {
-                    orc.Tick(player, runtimeSettings, mapRegion, swordOcclusionFilter, swordOcclusionHits); // 근접 강타 처리
+                    orc.Tick(player, runtimeSettings, mapRegion, swordOcclusionFilter, swordOcclusionHits, EnemyCanSeePlayer(orc.Fighter, runtimeSettings.orcSpeed)); // 시야를 반영한 근접 강타
                 }
             }
             foreach (Wolf wolf in wolves) // 늑대 순회
@@ -1342,9 +1367,19 @@ namespace Phi // 프로토타입 영역
                 }
                 if (wolf.Fighter != null && !wolf.Fighter.Dead) // 살아 있는 늑대 여부
                 {
-                    wolf.Tick(player, runtimeSettings, mapRegion); // 경로 예고와 도약 처리
+                    wolf.Tick(player, runtimeSettings, mapRegion, EnemyCanSeePlayer(wolf.Fighter, runtimeSettings.wolfSpeed)); // 시야를 반영한 추격과 도약
                 }
             }
+        }
+
+        private bool EnemyCanSeePlayer(Fighter enemy, float speed) // 이동 가능한 적의 장애물 시야 확인
+        {
+            if (speed <= 0f || !combatLayersReady) // 이동이 불가능하거나 충돌 계층이 없는 경우
+            {
+                return true; // 기존 고정 적 공격 상태 유지
+            }
+            Physics2D.SyncTransforms(); // 플레이어와 장애물 위치 반영
+            return Physics2D.Linecast(enemy.transform.position, player.transform.position, swordOcclusionFilter, swordOcclusionHits) == 0; // 단단한 벽의 시야 가림 여부
         }
 
         private void UpdateHealth() // 플레이어 체력 표시
@@ -1764,7 +1799,7 @@ namespace Phi // 프로토타입 영역
             this.move = move; // 공통 장애물 이동 보관
         }
 
-        public void Tick(Fighter player, PrototypeSettings settings, MapRegion mapRegion) // 슬라임 행동 갱신
+        public void Tick(Fighter player, PrototypeSettings settings, MapRegion mapRegion, bool canSeePlayer) // 슬라임 행동 갱신
         {
             Vector2 offset = player.transform.position - Fighter.transform.position; // 플레이어까지 방향
             if (dashRemaining > 0f) // 돌진 중 확인
@@ -1795,7 +1830,7 @@ namespace Phi // 프로토타입 영역
                 }
                 return; // 예고 중 이동 중지
             }
-            if (offset.magnitude <= settings.slimeAttackRange && Time.time >= nextAttack) // 공격 거리와 간격 검사
+            if (canSeePlayer && offset.magnitude <= settings.slimeAttackRange && Time.time >= nextAttack) // 시야와 공격 거리 및 간격 검사
             {
                 dashDirection = offset.sqrMagnitude > 0.0001f ? offset.normalized : Vector2.right; // 돌진 방향 고정
                 windupUntil = Time.time + Mathf.Max(0.01f, settings.slimeWindup); // 예고 종료 시각
@@ -1803,7 +1838,7 @@ namespace Phi // 프로토타입 영역
                 Fighter.transform.localScale = new Vector3(0.85f, 0.85f, 1f); // 몸을 부풀리는 예고
                 return; // 이번 프레임 이동 중지
             }
-            if (offset.magnitude > settings.slimeAttackRange * 0.8f) // 적정 거리 밖 확인
+            if (!canSeePlayer || offset.magnitude > settings.slimeAttackRange * 0.8f) // 시야가 막히거나 적정 거리 밖인지 확인
             {
                 Vector2 movement = offset.normalized * Mathf.Min(settings.slimeSpeed * Time.deltaTime, offset.magnitude); // 플레이어 방향 접근 이동량
                 Fighter.transform.position = move(Fighter.transform.position, movement, PrototypeSettings.SlimeRadius, true); // 벽과 경계 안의 접근 위치

@@ -345,7 +345,14 @@ public class MapBoundsTests // 시험 공간 경계 검증
         player.transform.position = new Vector3(15f, 0f, 0f); // 경계 밖 시험 목표
         slime.transform.position = new Vector3(9.5f, 0f, 0f); // 오른쪽 경계 근처의 적
         settings.slimeSpeed = 100000f; // 접근 거리 초과 시험 속도
-        tick.Invoke(state, new object[] { player, settings, mapRegion }); // 슬라임 접근 처리
+        object[] arguments = // 슬라임 행동의 시험 인자
+        {
+            player, // 시험 플레이어
+            settings, // 시험 전투 설정
+            mapRegion, // 실제 씬 경계
+            true // 벽에 가리지 않은 시험 시야
+        }; // 시험 인자 목록
+        tick.Invoke(state, arguments); // 슬라임 접근 처리
         Assert.That(slime.transform.position.x, Is.LessThanOrEqualTo(9.4551f)); // 슬라임 전체 도형의 접근 제한
         player.transform.position = new Vector3(10.8f, 0f, 0f); // 경계 바깥 피해 시험 대상
         slime.transform.position = new Vector3(9f, 0f, 0f); // 돌진 시작 위치
@@ -353,7 +360,7 @@ public class MapBoundsTests // 시험 공간 경계 검증
         settings.slimeHitDistance = 0.1f; // 경계 바깥 피해 구분 거리
         state.GetType().GetField("dashDirection", BindingFlags.Instance | BindingFlags.NonPublic).SetValue(state, Vector2.right); // 오른쪽 돌진 방향
         state.GetType().GetField("dashRemaining", BindingFlags.Instance | BindingFlags.NonPublic).SetValue(state, 3f); // 경계를 넘는 돌진 거리
-        tick.Invoke(state, new object[] { player, settings, mapRegion }); // 슬라임 돌진 처리
+        tick.Invoke(state, arguments); // 슬라임 돌진 처리
         Assert.That(slime.transform.position.x, Is.LessThanOrEqualTo(9.4551f)); // 슬라임 전체 도형의 돌진 제한
         Assert.That(player.Health, Is.EqualTo(100)); // 실제 돌진 경로 밖 피해 차단
         yield return null; // 시험 프레임 정리

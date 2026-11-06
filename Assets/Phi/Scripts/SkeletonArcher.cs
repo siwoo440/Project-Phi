@@ -23,7 +23,7 @@ namespace Phi // 원거리 적 행동 영역
             Fighter.Died += HideBow; // 사망 시 활 표시 정리
         }
 
-        public void Tick(Fighter player, PrototypeSettings settings, MapRegion mapRegion, Action<Vector2, Vector2, int, float, float> shoot) // 거리 유지와 화살 발사
+        public void Tick(Fighter player, PrototypeSettings settings, MapRegion mapRegion, Action<Vector2, Vector2, int, float, float> shoot, bool canSeePlayer) // 거리 유지와 화살 발사
         {
             Vector2 offset = player.transform.position - Fighter.transform.position; // 플레이어까지의 방향
             if (windupUntil > 0f) // 활시위 예고 진행 여부
@@ -39,13 +39,13 @@ namespace Phi // 원거리 적 행동 영역
             float distance = offset.magnitude; // 플레이어까지의 거리
             float keep = Mathf.Max(0f, settings.skeletonKeepDistance); // 음수 없는 유지 거리
             float range = Mathf.Max(0f, settings.skeletonAttackRange); // 음수 없는 공격 거리
-            if (distance < keep && distance > 0.0001f) // 플레이어가 너무 가까운 경우
+            if (canSeePlayer && distance < keep && distance > 0.0001f) // 시야가 확보되고 플레이어가 너무 가까운 경우
             {
                 float step = Mathf.Min(Mathf.Max(0f, settings.skeletonSpeed) * Time.deltaTime, keep - distance); // 유지 거리를 넘지 않는 후퇴 거리
                 Fighter.transform.position = move(Fighter.transform.position, -offset.normalized * step, PrototypeSettings.SlimeRadius, true); // 씬 경계 안의 거리 유지
                 return; // 후퇴 중 공격 생략
             }
-            if (distance <= range && Time.time >= nextAttack) // 공격 거리와 간격 확인
+            if (canSeePlayer && distance <= range && Time.time >= nextAttack) // 시야와 공격 거리 및 간격 확인
             {
                 shotDirection = offset.sqrMagnitude > 0.000001f ? offset.normalized : Vector2.right; // 예고 당시의 고정 발사 방향
                 windupUntil = Time.time + Mathf.Max(0.01f, settings.skeletonWindup); // 활시위 예고 종료 시각
@@ -53,9 +53,10 @@ namespace Phi // 원거리 적 행동 영역
                 bow.localRotation = Quaternion.Euler(0f, 0f, -60f); // 활을 당기는 임시 예고
                 return; // 예고 시작 프레임의 이동 중단
             }
-            if (distance > range && distance > 0.0001f) // 공격 거리 밖 확인
+            if ((!canSeePlayer || distance > range) && distance > 0.0001f) // 시야가 막히거나 공격 거리 밖인지 확인
             {
-                float step = Mathf.Min(Mathf.Max(0f, settings.skeletonSpeed) * Time.deltaTime, distance - range); // 공격 거리까지의 접근량
+                float remaining = canSeePlayer ? distance - range : distance; // 시야 확보 또는 공격 거리까지의 접근 거리
+                float step = Mathf.Min(Mathf.Max(0f, settings.skeletonSpeed) * Time.deltaTime, remaining); // 목표를 넘지 않는 접근량
                 Fighter.transform.position = move(Fighter.transform.position, offset.normalized * step, PrototypeSettings.SlimeRadius, true); // 씬 경계 안의 접근
             }
         }

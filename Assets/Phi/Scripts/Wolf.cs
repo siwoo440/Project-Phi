@@ -25,7 +25,7 @@ namespace Phi // 도약형 적 행동 영역
             Fighter.Died += HidePath; // 사망 시 경로 표시 정리
         }
 
-        public void Tick(Fighter player, PrototypeSettings settings, MapRegion mapRegion) // 추격과 고정 방향 도약
+        public void Tick(Fighter player, PrototypeSettings settings, MapRegion mapRegion, bool canSeePlayer) // 추격과 고정 방향 도약
         {
             Vector2 offset = player.transform.position - Fighter.transform.position; // 플레이어까지의 방향
             if (leapRemaining > 0f) // 도약 진행 여부
@@ -59,7 +59,7 @@ namespace Phi // 도약형 적 행동 영역
                 return; // 예고 중 이동과 중복 공격 차단
             }
             float range = Mathf.Max(0f, settings.wolfAttackRange); // 음수 없는 도약 시작 거리
-            if (offset.magnitude <= range && Time.time >= nextAttack) // 도약 거리와 간격 확인
+            if (canSeePlayer && offset.magnitude <= range && Time.time >= nextAttack) // 시야와 도약 거리 및 간격 확인
             {
                 leapDirection = offset.sqrMagnitude > 0.000001f ? offset.normalized : Vector2.right; // 예고 당시의 고정 도약 방향
                 windupUntil = Time.time + Mathf.Max(0.01f, settings.wolfWindup); // 도약 예고 종료 시각
@@ -75,7 +75,7 @@ namespace Phi // 도약형 적 행동 영역
                 path.gameObject.SetActive(true); // 도약 전 경로 표시
                 return; // 예고 시작 프레임의 이동 중단
             }
-            if (offset.magnitude > range * 0.8f) // 도약 거리 밖 확인
+            if (!canSeePlayer || offset.magnitude > range * 0.8f) // 시야가 막히거나 도약 거리 밖인지 확인
             {
                 float step = Mathf.Min(Mathf.Max(0f, settings.wolfSpeed) * Time.deltaTime, offset.magnitude); // 플레이어 방향 추격 거리
                 Fighter.transform.position = move(Fighter.transform.position, offset.normalized * step, PrototypeSettings.SlimeRadius, true); // 씬 경계 안의 추격

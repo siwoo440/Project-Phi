@@ -22,7 +22,7 @@ namespace Phi // 중장갑 적 행동 영역
             Fighter.Died += HideAxe; // 사망 시 도끼 표시 정리
         }
 
-        public void Tick(Fighter player, PrototypeSettings settings, MapRegion mapRegion, ContactFilter2D filter, RaycastHit2D[] hits) // 느린 접근과 부채꼴 강타
+        public void Tick(Fighter player, PrototypeSettings settings, MapRegion mapRegion, ContactFilter2D filter, RaycastHit2D[] hits, bool canSeePlayer) // 느린 접근과 부채꼴 강타
         {
             Vector2 offset = player.transform.position - Fighter.transform.position; // 플레이어까지의 방향
             if (windupUntil > 0f) // 강타 예고 진행 여부
@@ -40,7 +40,7 @@ namespace Phi // 중장갑 적 행동 영역
                 return; // 예고 중 접근과 중복 공격 차단
             }
             float range = Mathf.Max(0f, settings.orcAttackRange); // 음수 없는 강타 거리
-            if (offset.magnitude <= range && Time.time >= nextAttack) // 공격 거리와 간격 확인
+            if (canSeePlayer && offset.magnitude <= range && Time.time >= nextAttack) // 시야와 공격 거리 및 간격 확인
             {
                 attackDirection = offset.sqrMagnitude > 0.000001f ? offset.normalized : Vector2.right; // 예고 당시의 고정 강타 방향
                 windupUntil = Time.time + Mathf.Max(0.01f, settings.orcWindup); // 도끼 예고 종료 시각
@@ -48,7 +48,7 @@ namespace Phi // 중장갑 적 행동 영역
                 axe.localRotation = Quaternion.Euler(0f, 0f, -70f); // 도끼를 높이 드는 임시 예고
                 return; // 예고 시작 프레임의 이동 중단
             }
-            if (offset.magnitude > range * 0.8f) // 근접 거리 밖 확인
+            if (!canSeePlayer || offset.magnitude > range * 0.8f) // 시야가 막히거나 근접 거리 밖인지 확인
             {
                 float step = Mathf.Min(Mathf.Max(0f, settings.orcSpeed) * Time.deltaTime, offset.magnitude); // 플레이어 방향 접근 거리
                 Fighter.transform.position = move(Fighter.transform.position, offset.normalized * step, PrototypeSettings.SlimeRadius, true); // 씬 경계 안의 느린 접근
