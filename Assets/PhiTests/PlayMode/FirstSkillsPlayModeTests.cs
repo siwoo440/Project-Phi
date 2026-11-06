@@ -301,6 +301,9 @@ public class FirstSkillsPlayModeTests // 첫 세 스킬의 실제 입력과 전�
             FieldInfo field = typeof(PrototypeBootstrap).GetField("settings", BindingFlags.Instance | BindingFlags.NonPublic); // 원본 설정 연결
             PrototypeSettings asset = (PrototypeSettings)field.GetValue(bootstrap); // 사용자 설정 에셋
             trial = Object.Instantiate(asset); // 원본을 보존할 독립 설정
+            trial.skeletonCount = 0; // 궁수 간섭 제외
+            trial.orcCount = 0; // 오크 간섭 제외
+            trial.wolfCount = 0; // 늑대 간섭 제외
             trial.startingWeapon = WeaponType.Sword; // 시험 시작 무기
             trial.playerHealth = 100; // 시험 최대 체력
             trial.playerAttack = 10; // 시험 기본 공격력

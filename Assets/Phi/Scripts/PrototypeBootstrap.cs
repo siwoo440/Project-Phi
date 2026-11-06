@@ -39,8 +39,12 @@ namespace Phi // 프로토타입 영역
         private Fighter player; // 플레이어 전투 상태
         private readonly List<Slime> slimes = new List<Slime>(); // 슬라임 목록
         private readonly List<Goblin> goblins = new List<Goblin>(); // 고블린 행동 목록
+        private readonly List<SkeletonArcher> skeletons = new List<SkeletonArcher>(); // 스켈레톤 궁수 행동 목록
+        private readonly List<OrcWarrior> orcs = new List<OrcWarrior>(); // 오크 전사 행동 목록
+        private readonly List<Wolf> wolves = new List<Wolf>(); // 늑대 행동 목록
         private readonly List<Fighter> enemies = new List<Fighter>(); // 생성 순서의 공통 적 목록
         private readonly List<BowArrow> arrows = new List<BowArrow>(); // 발사된 화살 상태 목록
+        private readonly List<BowArrow> enemyArrows = new List<BowArrow>(); // 발사된 적 화살 상태 목록
         private readonly List<RaycastHit2D> arrowHits = new List<RaycastHit2D>(); // 화살 경로 충돌 결과
         private readonly List<Collider2D> arrowOverlaps = new List<Collider2D>(); // 화살 출발점 충돌 결과
         private readonly List<RaycastHit2D> dodgeHits = new List<RaycastHit2D>(); // 회피 경로의 장애물 충돌 결과
@@ -69,6 +73,7 @@ namespace Phi // 프로토타입 영역
         private bool combatLayersReady; // 전투 계층 준비 여부
         private ContactFilter2D swordOcclusionFilter; // 검 장애물 충돌 필터
         private ContactFilter2D arrowCollisionFilter; // 화살 적과 장애물 충돌 필터
+        private ContactFilter2D enemyArrowFilter; // 적 화살의 플레이어와 벽 필터
         private readonly RaycastHit2D[] swordOcclusionHits = new RaycastHit2D[1]; // 검 장애물 판정 결과
         private Sprite square; // 임시 사각형 그림
         private Texture2D explosionTexture; // 임시 원형 폭발 테두리 질감
@@ -155,6 +160,9 @@ namespace Phi // 프로토타입 영역
             arrowCollisionFilter = new ContactFilter2D(); // 화살 충돌 검사 필터
             arrowCollisionFilter.SetLayerMask((1 << obstacleLayer) | (1 << enemyLayer)); // 벽과 적의 충돌 계층 선택
             arrowCollisionFilter.useTriggers = false; // 화살 트리거 충돌 제외
+            enemyArrowFilter = new ContactFilter2D(); // 적 화살 충돌 검사 필터
+            enemyArrowFilter.SetLayerMask((1 << obstacleLayer) | (1 << playerLayer)); // 벽과 플레이어 충돌 계층 선택
+            enemyArrowFilter.useTriggers = false; // 적 화살의 트리거 충돌 제외
         }
 
         private void Update() // 매 프레임 입력과 전투 처리
@@ -192,14 +200,24 @@ namespace Phi // 프로토타입 영역
                 ReadSkillInput(); // 현재 조준 방향의 스킬 입력
             }
             UpdateArrows(); // 발사된 화살 이동과 충돌
+            UpdateEnemyArrows(); // 적 화살 이동과 플레이어 충돌
             UpdateExplosionEffects(); // 종료된 폭발 표시 정리
-            UpdateSlimes(); // 슬라임 행동
+            if (!player.Dead) // 적 화살 이후 플레이어 생존 여부
+            {
+                UpdateSlimes(); // 슬라임 행동
+            }
             if (!player.Dead) // 슬라임 공격 이후 생존 여부
             {
                 UpdateGoblins(); // 고블린 근접 행동
             }
+            if (!player.Dead) // 기존 적 공격 이후 생존 여부
+            {
+                UpdateAdditionalEnemies(); // 궁수와 오크 및 늑대 행동
+            }
             if (player.Dead) // 이번 프레임의 플레이어 사망 여부
             {
+                SetEquipmentButtonsInteractable(false); // 사망 중 무기 버튼 비활성화
+                gameOverPanel.SetActive(true); // 적 화살 사망의 재시작 화면
                 ClearArrows(); // 사망 후 화살 피해 방지
             }
             UpdateInteraction(!suppressAttack && !player.Dead); // 대상 선택과 회피 중 입력 차단
@@ -264,6 +282,7 @@ namespace Phi // 프로토타입 영역
             {
                 playerObject.layer = playerLayer; // 플레이어 충돌 계층 지정
             }
+            playerObject.AddComponent<BoxCollider2D>().size = Vector2.one; // 적 화살 적중용 플레이어 도형
             player = playerObject.AddComponent<Fighter>(); // 플레이어 체력 상태
             player.Initialize(runtimeSettings.playerHealth, runtimeSettings.playerDefense); // 플레이어 능력치 설정
             aimMarker = Shape("Aim", Vector2.zero, new Vector2(0.8f, 0.12f), Color.white, 3); // 조준 방향 표시
@@ -305,6 +324,51 @@ namespace Phi // 프로토타입 영역
                 goblins.Add(new Goblin(goblinFighter, weapon.transform)); // 독립 고블린 행동 등록
                 enemies.Add(goblinFighter); // 공통 공격 대상에 고블린 등록
             }
+            for (int index = 0; index < Mathf.Max(0, runtimeSettings.skeletonCount); index++) // 시험 스켈레톤 궁수 생성
+            {
+                float angle = Mathf.PI * 0.5f + index * Mathf.PI * 2f / Mathf.Max(1, runtimeSettings.skeletonCount); // 궁수 배치 각도
+                Fighter fighter = CreateAdditionalEnemy("Skeleton " + (index + 1), mapCenter, angle, new Color(0.82f, 0.82f, 0.9f), runtimeSettings.skeletonHealth, runtimeSettings.skeletonDefense); // 궁수 도형과 기획 능력치
+                Transform bow = CreateEnemyVisual(fighter, "Skeleton Bow", new Vector2(0.15f, 0.8f), new Color(0.65f, 0.45f, 0.2f)); // 궁수 활 예고 표시
+                skeletons.Add(new SkeletonArcher(fighter, bow)); // 독립 궁수 행동 등록
+            }
+            for (int index = 0; index < Mathf.Max(0, runtimeSettings.orcCount); index++) // 시험 오크 전사 생성
+            {
+                float angle = Mathf.PI + index * Mathf.PI * 2f / Mathf.Max(1, runtimeSettings.orcCount); // 오크 배치 각도
+                Fighter fighter = CreateAdditionalEnemy("Orc " + (index + 1), mapCenter, angle, new Color(0.45f, 0.5f, 0.2f), runtimeSettings.orcHealth, runtimeSettings.orcDefense); // 오크 도형과 기획 능력치
+                Transform axe = CreateEnemyVisual(fighter, "Orc Axe", new Vector2(0.3f, 0.9f), new Color(0.7f, 0.7f, 0.75f)); // 오크 도끼 예고 표시
+                orcs.Add(new OrcWarrior(fighter, axe)); // 독립 오크 행동 등록
+            }
+            for (int index = 0; index < Mathf.Max(0, runtimeSettings.wolfCount); index++) // 시험 늑대 생성
+            {
+                float angle = -Mathf.PI * 0.25f + index * Mathf.PI * 2f / Mathf.Max(1, runtimeSettings.wolfCount); // 늑대 배치 각도
+                Fighter fighter = CreateAdditionalEnemy("Wolf " + (index + 1), mapCenter, angle, new Color(0.5f, 0.5f, 0.55f), runtimeSettings.wolfHealth, runtimeSettings.wolfDefense); // 늑대 도형과 기획 능력치
+                GameObject path = Shape("Wolf Path", fighter.transform.position, Vector2.one, new Color(1f, 0.35f, 0.2f, 0.65f), 3); // 늑대 도약 경로 예고
+                path.transform.SetParent(fighter.transform, false); // 늑대에 경로 표시 연결
+                wolves.Add(new Wolf(fighter, path.transform)); // 독립 늑대 행동 등록
+            }
+        }
+
+        private Fighter CreateAdditionalEnemy(string name, Vector2 center, float angle, Color color, int health, int defense) // 새 적의 공통 전투 도형 생성
+        {
+            Vector2 position = mapRegion.ClampPosition(center + new Vector2(Mathf.Cos(angle), Mathf.Sin(angle)) * 4f, PrototypeSettings.SlimeRadius); // 기존 씬 경계 안의 배치
+            GameObject enemy = Shape(name, position, new Vector2(0.7f, 0.7f), color, 1); // 적의 임시 본체
+            if (combatLayersReady) // 전투 계층 준비 여부
+            {
+                enemy.layer = enemyLayer; // 공통 적 충돌 계층 지정
+            }
+            enemy.AddComponent<BoxCollider2D>().size = Vector2.one; // 투사체 적중용 적 충돌체
+            Fighter fighter = enemy.AddComponent<Fighter>(); // 적의 독립 전투 상태
+            fighter.Initialize(health, defense); // 기획 체력과 방어력 적용
+            enemies.Add(fighter); // 공통 무기와 스킬 대상 등록
+            return fighter; // 생성된 적 전투 상태
+        }
+
+        private Transform CreateEnemyVisual(Fighter fighter, string name, Vector2 size, Color color) // 적 공격의 임시 무기 표시
+        {
+            GameObject visual = Shape(name, fighter.transform.position, size, color, 2); // 적 무기 도형 생성
+            visual.transform.SetParent(fighter.transform, false); // 적 본체에 무기 연결
+            visual.transform.localPosition = new Vector3(0.55f, 0.05f, 0f); // 본체 옆 무기 위치
+            return visual.transform; // 행동 예고용 무기 참조
         }
 
         private void ReadMovement() // 키보드 이동
@@ -692,6 +756,13 @@ namespace Phi // 프로토타입 영역
         private void SpawnSlimeLoot(Fighter source) // 슬라임 사망 전이의 시험 전리품 생성
         {
             GameObject loot = Shape("Slime Loot", source.transform.position, new Vector2(0.3f, 0.3f), new Color(0.8f, 1f, 0.35f), 2); // 임시 바닥 전리품 표시
+            Sprite lootSprite = Resources.Load<Sprite>("PhiArt/slime_gel"); // 기획서 슬라임 점액 그림
+            if (lootSprite != null) // 점액 그림 사용 가능 여부
+            {
+                SpriteRenderer renderer = loot.GetComponent<SpriteRenderer>(); // 바닥 전리품 그림 표시기
+                renderer.sprite = lootSprite; // 기획서 점액 그림 적용
+                renderer.color = Color.white; // 원본 그림 색상 유지
+            }
             Interactable target = loot.AddComponent<Interactable>(); // 공통 상호작용 대상 연결
             target.Configure(InteractionKind.Loot, "SLIME GEL (TEST)"); // 시험 아이템 이름과 식별자 설정
         }
@@ -939,6 +1010,29 @@ namespace Phi // 프로토타입 영역
             }
         }
 
+        private void LaunchEnemyArrow(Vector2 origin, Vector2 direction, int attack, float speed, float range) // 궁수의 고정 방향 화살 발사
+        {
+            float size = BowArrow.VisualRadius * 2f; // 적 화살의 표시와 충돌 크기
+            GameObject visual = Shape("Enemy Arrow", origin, new Vector2(size, size), new Color(1f, 0.45f, 0.45f), 4); // 적 화살 임시 표시
+            enemyArrows.Add(new BowArrow(visual, direction, speed, range, attack, obstacleLayer)); // 발사 당시 방향과 피해 보관
+        }
+
+        private void UpdateEnemyArrows() // 적 화살의 플레이어와 벽 충돌 처리
+        {
+            if (enemyArrows.Count == 0) // 적 화살 존재 여부
+            {
+                return; // 불필요한 충돌 검사 생략
+            }
+            Physics2D.SyncTransforms(); // 변경된 플레이어와 장애물 위치 반영
+            for (int index = enemyArrows.Count - 1; index >= 0; index--) // 제거에 안전한 역순 검사
+            {
+                if (enemyArrows[index].Tick(mapRegion, enemyArrowFilter, arrowHits, arrowOverlaps, Time.deltaTime)) // 적 화살 이동과 종료 판정
+                {
+                    enemyArrows.RemoveAt(index); // 종료된 적 화살 상태 제거
+                }
+            }
+        }
+
         private void ClearArrows() // 전투 종료 시 화살 정리
         {
             foreach (BowArrow arrow in arrows) // 남은 화살 상태 검사
@@ -946,6 +1040,11 @@ namespace Phi // 프로토타입 영역
                 arrow.Clear(); // 화살 표시 제거
             }
             arrows.Clear(); // 화살 상태 목록 초기화
+            foreach (BowArrow arrow in enemyArrows) // 남은 적 화살 상태 검사
+            {
+                arrow.Clear(); // 적 화살 표시 제거
+            }
+            enemyArrows.Clear(); // 적 화살 상태 목록 초기화
             foreach (GameObject effect in explosionEffects) // 남은 폭발 표시 검사
             {
                 if (effect != null) // 폭발 표시 존재 여부
@@ -992,6 +1091,43 @@ namespace Phi // 프로토타입 영역
                     SetEquipmentButtonsInteractable(false); // 사망 중 무기 버튼 비활성화
                     gameOverPanel.SetActive(true); // 재시작 화면 표시
                     break; // 사망 후 추가 공격 중지
+                }
+            }
+        }
+
+        private void UpdateAdditionalEnemies() // 궁수와 오크 및 늑대 행동 갱신
+        {
+            if (!combatLayersReady) // 적 공격의 충돌 계층 확인
+            {
+                return; // 충돌 계층 누락 시 잘못된 공격 방지
+            }
+            foreach (SkeletonArcher skeleton in skeletons) // 스켈레톤 궁수 순회
+            {
+                if (skeleton.Fighter != null && !skeleton.Fighter.Dead) // 살아 있는 궁수 여부
+                {
+                    skeleton.Tick(player, runtimeSettings, mapRegion, LaunchEnemyArrow); // 거리 유지와 고정 방향 화살
+                }
+            }
+            foreach (OrcWarrior orc in orcs) // 오크 전사 순회
+            {
+                if (player.Dead) // 이전 적 공격의 플레이어 사망 여부
+                {
+                    return; // 사망 후 추가 공격 방지
+                }
+                if (orc.Fighter != null && !orc.Fighter.Dead) // 살아 있는 오크 여부
+                {
+                    orc.Tick(player, runtimeSettings, mapRegion, swordOcclusionFilter, swordOcclusionHits); // 근접 강타 처리
+                }
+            }
+            foreach (Wolf wolf in wolves) // 늑대 순회
+            {
+                if (player.Dead) // 이전 적 공격의 플레이어 사망 여부
+                {
+                    return; // 사망 후 추가 공격 방지
+                }
+                if (wolf.Fighter != null && !wolf.Fighter.Dead) // 살아 있는 늑대 여부
+                {
+                    wolf.Tick(player, runtimeSettings, mapRegion); // 경로 예고와 도약 처리
                 }
             }
         }
@@ -1133,6 +1269,22 @@ namespace Phi // 프로토타입 영역
             Button button = buttonObject.AddComponent<Button>(); // 무기 선택 버튼 동작
             button.onClick.AddListener(() => EquipWeapon(weapon)); // 해당 무기 장착 연결
             Text label = Label("Weapon Label", buttonObject.transform, "", 20); // 버튼의 무기 이름과 선택 표시
+            Sprite iconSprite = Resources.Load<Sprite>("PhiArt/" + weapon.ToString().ToLowerInvariant()); // 기획서 무기 그림
+            if (iconSprite != null) // 무기 그림 사용 가능 여부
+            {
+                GameObject iconObject = new GameObject("Weapon Icon", typeof(RectTransform), typeof(Image)); // 버튼 안의 무기 그림
+                iconObject.transform.SetParent(buttonObject.transform, false); // 무기 버튼에 그림 연결
+                RectTransform iconRect = iconObject.GetComponent<RectTransform>(); // 그림 위치 구성 요소
+                iconRect.anchorMin = new Vector2(0f, 0.5f); // 버튼 왼쪽 기준점
+                iconRect.anchorMax = new Vector2(0f, 0.5f); // 버튼 왼쪽 기준점 고정
+                iconRect.anchoredPosition = new Vector2(26f, 0f); // 버튼 왼쪽 그림 위치
+                iconRect.sizeDelta = new Vector2(42f, 42f); // 버튼 안의 그림 크기
+                Image icon = iconObject.GetComponent<Image>(); // 무기 그림 표시기
+                icon.sprite = iconSprite; // 무기에 맞는 기획서 그림
+                icon.preserveAspect = true; // 원본 그림 비율 유지
+                icon.raycastTarget = false; // 버튼 클릭 방해 방지
+                label.rectTransform.offsetMin = new Vector2(42f, 0f); // 그림과 무기 글자의 간격
+            }
             equipmentLabels.Add(weapon, label); // 무기별 표시 참조 보관
             equipmentButtons.Add(button); // 사망 시 비활성화할 버튼 보관
         }

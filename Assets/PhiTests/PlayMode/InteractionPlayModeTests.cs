@@ -430,6 +430,9 @@ public class InteractionPlayModeTests // 상호작용과 임시 전리품 검증
             FieldInfo field = typeof(PrototypeBootstrap).GetField("settings", BindingFlags.Instance | BindingFlags.NonPublic); // 씬 설정 참조 필드
             PrototypeSettings asset = (PrototypeSettings)field.GetValue(bootstrap); // 원본 사용자 설정
             trial = Object.Instantiate(asset); // 원본을 보존하는 독립 복제 설정
+            trial.skeletonCount = 0; // 궁수 간섭 제외
+            trial.orcCount = 0; // 오크 간섭 제외
+            trial.wolfCount = 0; // 늑대 간섭 제외
             trial.playerHealth = 100; // 시험 플레이어 체력
             trial.playerAttack = 10; // 시험 기본 공격력
             trial.playerDefense = 5; // 시험 기본 방어력

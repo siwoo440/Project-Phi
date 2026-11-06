@@ -46,4 +46,7 @@ MonoBehaviour:
   slimeHitDistance: 0.65
   slimeCount: 3
   goblinCount: 1
+  skeletonCount: 1
+  orcCount: 1
+  wolfCount: 1
 

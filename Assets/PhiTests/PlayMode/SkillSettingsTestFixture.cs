@@ -56,6 +56,9 @@ internal sealed class SkillSettingsTestFixture : IDisposable // 재시작 씬의
             PrototypeSettings copy = UnityEngine.Object.Instantiate(source); // 원본을 보존한 시험 설정 복제
             copies.Add(copy); // 시험 후 제거할 복제본 등록
             UseRecommended(copy); // 유효한 스킬 조합 적용
+            copy.skeletonCount = 0; // 궁수 간섭 제외
+            copy.orcCount = 0; // 오크 간섭 제외
+            copy.wolfCount = 0; // 늑대 간섭 제외
             field.SetValue(bootstrap, copy); // 전투 시작 전 복제 설정 연결
             return; // 대상 전투 구성 요소 설정 완료
         }

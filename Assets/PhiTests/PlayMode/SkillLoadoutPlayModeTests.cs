@@ -173,6 +173,9 @@ public class SkillLoadoutPlayModeTests // 전투 시작 스킬 슬롯 검증
             FieldInfo settingsField = typeof(PrototypeBootstrap).GetField("settings", BindingFlags.Instance | BindingFlags.NonPublic); // 씬 설정 참조 필드
             asset = (PrototypeSettings)settingsField.GetValue(bootstrap); // 원본 설정 에셋 보관
             trial = Object.Instantiate(asset); // 원본을 보존할 시험 설정 복제
+            trial.skeletonCount = 0; // 궁수 간섭 제외
+            trial.orcCount = 0; // 오크 간섭 제외
+            trial.wolfCount = 0; // 늑대 간섭 제외
             trial.startingWeapon = WeaponType.Sword; // 시험 시작 무기
             trial.playerAttack = 10; // 시험 플레이어 공격력
             trial.slimeCount = 3; // 시험 슬라임 수

@@ -41,6 +41,9 @@ public class WeaponEquipmentTests // 전투 중 시험 무기 장착 검증
             asset = (PrototypeSettings)settingsField.GetValue(bootstrap); // 원본 설정 에셋 보관
             trial = Object.Instantiate(asset); // 원본을 보존할 시험 설정 복제
             SkillSettingsTestFixture.UseRecommended(trial); // 무기 시험의 유효한 스킬 조합
+            trial.skeletonCount = 0; // 궁수 간섭 제외
+            trial.orcCount = 0; // 오크 간섭 제외
+            trial.wolfCount = 0; // 늑대 간섭 제외
             trial.startingWeapon = WeaponType.Sword; // 시험 시작 무기
             trial.playerHealth = 100; // 시험 플레이어 체력
             trial.playerAttack = 10; // 시험 플레이어 기본 공격력

@@ -39,6 +39,9 @@ public class MeleeEnemyTests // 근접형과 돌진형 적의 전투 검증
             PrototypeBootstrap battle = Object.FindFirstObjectByType<PrototypeBootstrap>(); // 새 전투 구성 요소
             FieldInfo field = typeof(PrototypeBootstrap).GetField("settings", BindingFlags.Instance | BindingFlags.NonPublic); // 씬 설정 참조
             trial = Object.Instantiate((PrototypeSettings)field.GetValue(battle)); // 사용자 설정의 독립 복제
+            trial.skeletonCount = 0; // 궁수 간섭 제외
+            trial.orcCount = 0; // 오크 간섭 제외
+            trial.wolfCount = 0; // 늑대 간섭 제외
             trial.playerHealth = 100; // 시험 플레이어 체력
             trial.playerAttack = 10; // 시험 기본 공격력
             trial.playerDefense = 5; // 시험 플레이어 방어력

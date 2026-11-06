@@ -25,6 +25,9 @@ public class SettingsBindingTests // 씬 설정 연결 검증
                 if (original != null) // 연결된 설정 에셋 확인
                 {
                     trial = Object.Instantiate(original); // 원본 설정의 임시 복제
+                    trial.skeletonCount = 0; // 궁수 간섭 제외
+                    trial.orcCount = 0; // 오크 간섭 제외
+                    trial.wolfCount = 0; // 늑대 간섭 제외
                     SkillSettingsTestFixture.UseRecommended(trial); // 설정 연결 시험의 유효한 스킬 조합
                     trial.playerHealth = 137; // 기본값과 다른 시험 체력
                     settingsField.SetValue(bootstrap, trial); // 시작 전에 임시 설정 연결

@@ -555,6 +555,9 @@ public class DodgePlayModeTests // 실제 회피 입력과 전투 검증
             FieldInfo field = typeof(PrototypeBootstrap).GetField("settings", BindingFlags.Instance | BindingFlags.NonPublic); // 전투 설정 참조
             PrototypeSettings asset = (PrototypeSettings)field.GetValue(bootstrap); // 원본 사용자 설정 에셋
             trial = Object.Instantiate(asset); // 원본을 보존할 독립 설정
+            trial.skeletonCount = 0; // 궁수 간섭 제외
+            trial.orcCount = 0; // 오크 간섭 제외
+            trial.wolfCount = 0; // 늑대 간섭 제외
             trial.playerHealth = 100; // 시험 플레이어 체력
             trial.playerAttack = 10; // 시험 기본 공격력
             trial.playerDefense = 5; // 시험 플레이어 방어력

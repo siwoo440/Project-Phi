@@ -84,6 +84,37 @@ namespace Phi // 전투 설정 영역
         public float goblinWindup = 0.35f; // 임시 고블린 공격 예고 시간
         public float goblinAttackInterval = 1f; // 임시 고블린 공격 간격
         public float goblinAttackAngle = 90f; // 임시 고블린 베기 각도
+        public int skeletonCount = 0; // 기존 설정의 궁수 추가 없음
+        public int skeletonHealth = 35; // 스켈레톤 궁수 체력
+        public int skeletonAttack = 9; // 스켈레톤 궁수 공격력
+        public int skeletonDefense = 1; // 스켈레톤 궁수 방어력
+        public float skeletonSpeed = 1.8f; // 임시 궁수 이동속도
+        public float skeletonKeepDistance = 3f; // 임시 궁수 유지 거리
+        public float skeletonAttackRange = 6f; // 임시 궁수 공격 거리
+        public float skeletonWindup = 0.5f; // 임시 궁수 공격 예고
+        public float skeletonAttackInterval = 1.5f; // 임시 궁수 공격 간격
+        public float skeletonProjectileSpeed = 8f; // 임시 적 화살 속도
+        public float skeletonProjectileRange = 6f; // 임시 적 화살 사거리
+        public int orcCount = 0; // 기존 설정의 오크 추가 없음
+        public int orcHealth = 100; // 오크 전사 체력
+        public int orcAttack = 15; // 오크 전사 공격력
+        public int orcDefense = 5; // 오크 전사 방어력
+        public float orcSpeed = 1f; // 임시 오크 이동속도
+        public float orcAttackRange = 1.4f; // 임시 오크 강타 거리
+        public float orcWindup = 0.7f; // 임시 오크 공격 예고
+        public float orcAttackInterval = 1.8f; // 임시 오크 공격 간격
+        public float orcAttackAngle = 120f; // 임시 오크 강타 각도
+        public int wolfCount = 0; // 기존 설정의 늑대 추가 없음
+        public int wolfHealth = 45; // 늑대 체력
+        public int wolfAttack = 9; // 늑대 공격력
+        public int wolfDefense = 1; // 늑대 방어력
+        public float wolfSpeed = 2.2f; // 임시 늑대 이동속도
+        public float wolfAttackRange = 2.5f; // 임시 늑대 도약 시작 거리
+        public float wolfWindup = 0.45f; // 임시 늑대 도약 예고
+        public float wolfAttackInterval = 1.8f; // 임시 늑대 공격 간격
+        public float wolfLeapDistance = 2.5f; // 임시 늑대 도약 거리
+        public float wolfLeapSpeed = 7f; // 임시 늑대 도약 속도
+        public float wolfHitDistance = 0.65f; // 임시 늑대 적중 거리
     }
 }
 
