@@ -11,17 +11,19 @@ namespace Phi // 전투 투사체 영역
         private readonly Vector2 direction; // 발사 순간의 고정 방향
         private readonly float speed; // 발사 순간의 화살 속도
         private readonly int attack; // 발사 순간의 공격력
+        private readonly float attackMultiplier; // 발사 순간의 피해 배율
         private readonly int obstacleLayer; // 장애물 충돌 계층
         private readonly System.Action<Vector2> explosion; // 적 또는 사거리 도달 시 폭발 동작
         private float remainingDistance; // 남은 화살 이동 거리
 
-        public BowArrow(GameObject visual, Vector2 direction, float speed, float range, int attack, int obstacleLayer, System.Action<Vector2> explosion = null) // 투사체 상태 생성
+        public BowArrow(GameObject visual, Vector2 direction, float speed, float range, int attack, int obstacleLayer, System.Action<Vector2> explosion = null, float attackMultiplier = 1f) // 투사체 상태 생성
         {
             this.visual = visual; // 화면 표시 보관
             this.direction = direction.normalized; // 발사 방향 고정
             this.speed = Mathf.Max(0.01f, speed); // 최소 이동속도
             remainingDistance = Mathf.Max(0f, range); // 음수 사거리 방지
             this.attack = attack; // 발사 시점 공격력 보관
+            this.attackMultiplier = attackMultiplier; // 발사 시점 피해 배율 보관
             this.obstacleLayer = obstacleLayer; // 장애물 계층 보관
             this.explosion = explosion; // 선택적 범위 폭발 동작 보관
         }
@@ -70,7 +72,7 @@ namespace Phi // 전투 투사체 영역
                     }
                     else // 단일 피해 투사체 여부
                     {
-                        target.TakeDamage(CombatMath.Damage(attack, 1f, target.Defense, false)); // 공통 계산의 활 피해 적용
+                        target.TakeDamage(CombatMath.Damage(attack, attackMultiplier, target.Defense, false)); // 공통 계산의 단일 피해 적용
                     }
                 }
                 Object.Destroy(visual); // 충돌 후 화살 표시 제거

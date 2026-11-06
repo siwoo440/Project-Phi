@@ -126,7 +126,7 @@ public class SkillLoadoutPlayModeTests // 전투 시작 스킬 슬롯 검증
     [UnityTest] // 미구현 입력 사례
     public IEnumerator SkillKeysDoNotActivateUnimplementedEffects() // Q/E/R 입력의 미구현 상태 유지
     {
-        yield return LoadCustom("Fireball", "WhirlwindSlash", "HealingLight", false); // 추천 시험 조합
+        yield return LoadCustom("IceShard", "Shield", "Teleport", false); // 미구현 스킬 시험 조합
         Fighter player = GameObject.Find("Player").GetComponent<Fighter>(); // 플레이어 전투 상태
         Fighter target = GameObject.Find("Slime 1").GetComponent<Fighter>(); // 주변 적의 전투 상태
         int playerHealth = player.Health; // 입력 전 플레이어 체력

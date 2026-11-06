@@ -16,6 +16,8 @@ namespace Phi // 전투 설정 영역
         public int playerAttack = 10; // 플레이어 기본 공격력
         public int playerDefense = 5; // 플레이어 기본 방어력
         public float playerSpeed = 4f; // 플레이어 이동속도
+        public int playerMana = 50; // 플레이어 최대 마나
+        public float manaRegen = 3f; // 초당 마나 회복량
         [HideInInspector] public float mapHalfWidth = 10f; // 이전 가로 맵 설정 보존
         [HideInInspector] public float mapHalfHeight = 6f; // 이전 세로 맵 설정 보존
         public const float BoundaryThickness = 0.12f; // 공간 테두리 두께
@@ -26,6 +28,18 @@ namespace Phi // 전투 설정 영역
         public SkillId startingSkillQ = SkillId.Fireball; // 시험용 Q 시작 스킬
         public SkillId startingSkillE = SkillId.WhirlwindSlash; // 시험용 E 시작 스킬
         public SkillId startingSkillR = SkillId.HealingLight; // 시험용 R 시작 스킬
+        public int fireballCost = 10; // 화염탄 마나 비용
+        public float fireballCooldown = 5f; // 화염탄 재사용 시간
+        public float fireballMultiplier = 1.4f; // 화염탄 공격 배율
+        public float fireballRange = 7f; // 임시 화염탄 사거리
+        public float fireballSpeed = 14f; // 임시 화염탄 속도
+        public int whirlwindCost = 14; // 회오리 베기 마나 비용
+        public float whirlwindCooldown = 9f; // 회오리 베기 재사용 시간
+        public float whirlwindMultiplier = 1.3f; // 회오리 베기 공격 배율
+        public float whirlwindRadius = 2f; // 임시 회오리 베기 반경
+        public int healingCost = 18; // 치유의 빛 마나 비용
+        public float healingCooldown = 20f; // 치유의 빛 재사용 시간
+        public float healingFraction = 0.15f; // 최대 체력 대비 회복 비율
         public int swordAttack = 12; // 검 공격력
         public float swordInterval = 0.55f; // 검 공격 간격
         public float swordRange = 1.7f; // 검 공격 사거리

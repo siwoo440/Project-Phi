@@ -16,6 +16,11 @@ namespace Phi // 프로토타입 영역
         private PrototypeSettings runtimeSettings; // 현재 전투 설정
         private WeaponType equippedWeapon; // 현재 전투에서 장착한 무기
         public SkillLoadout EquippedSkills { get; private set; } // 설정과 분리된 전투 스킬 슬롯
+        public SkillRuntime SkillState // 설정과 분리된 마나와 대기시간
+        {
+            get; // 전투 스킬 상태 읽기
+            private set; // 전투 스킬 상태 내부 설정
+        }
         private Fighter player; // 플레이어 전투 상태
         private readonly List<Slime> slimes = new List<Slime>(); // 슬라임 목록
         private readonly List<BowArrow> arrows = new List<BowArrow>(); // 발사된 화살 상태 목록
@@ -25,6 +30,7 @@ namespace Phi // 프로토타입 영역
         private Camera gameCamera; // 추적 카메라
         private GameObject aimMarker; // 조준 표시
         private Text healthText; // 체력 글자
+        private Text skillStatusText; // 마나와 스킬 상태 글자
         private readonly Dictionary<WeaponType, Text> equipmentLabels = new Dictionary<WeaponType, Text>(); // 무기별 선택 표시
         private readonly List<Button> equipmentButtons = new List<Button>(); // 무기 장착 버튼 목록
         private GameObject gameOverPanel; // 사망 화면
@@ -50,6 +56,7 @@ namespace Phi // 프로토타입 영역
             runtimeSettings = settings != null ? settings : ScriptableObject.CreateInstance<PrototypeSettings>(); // 설정이 없을 때 기본값 사용
             equippedWeapon = runtimeSettings.startingWeapon; // 설정값에서 전투 시작 무기 복사
             EquippedSkills = SkillLoadout.Create(runtimeSettings.startingSkillQ, runtimeSettings.startingSkillE, runtimeSettings.startingSkillR); // 전투 시작 스킬 복사와 슬롯 검증
+            SkillState = new SkillRuntime(runtimeSettings); // 시작 마나와 대기시간 초기화
             List<string> skillErrors = new List<string>(); // 슬롯별 오류 목록
             AddSkillError(skillErrors, "Q", EquippedSkills.QError); // Q 슬롯 오류 수집
             AddSkillError(skillErrors, "E", EquippedSkills.EError); // E 슬롯 오류 수집
@@ -131,7 +138,9 @@ namespace Phi // 프로토타입 영역
             }
             ReadMovement(); // 이동 입력
             FollowCamera(); // 이동 직후 카메라 위치 반영
+            SkillState.Tick(Time.deltaTime); // 마나 회복과 대기시간 갱신
             ReadAimAndAttack(); // 조준과 공격 입력
+            ReadSkillInput(); // 현재 조준 방향의 스킬 입력
             UpdateArrows(); // 발사된 화살 이동과 충돌
             UpdateExplosionEffects(); // 종료된 폭발 표시 정리
             UpdateSlimes(); // 슬라임 행동
@@ -140,6 +149,7 @@ namespace Phi // 프로토타입 영역
                 ClearArrows(); // 사망 후 화살 피해 방지
             }
             UpdateHealth(); // 체력 표시
+            UpdateSkillStatus(); // 마나와 슬롯 상태 표시
         }
 
         private void LateUpdate() // 이동 후 카메라 추적
@@ -256,6 +266,107 @@ namespace Phi // 프로토타입 영역
             {
                 blockedPress = false; // 클릭 차단 해제
                 pressActive = false; // 클릭 유지 상태 해제
+            }
+        }
+
+        private void ReadSkillInput() // 슬롯 순서의 키보드 시전
+        {
+            Keyboard keyboard = Keyboard.current; // 현재 키보드
+            if (keyboard == null || TextInputFocused()) // 키보드 부재 또는 텍스트 입력 여부
+            {
+                return; // 스킬 키 입력 생략
+            }
+            if (keyboard.qKey.wasPressedThisFrame) // Q 키 시작 여부
+            {
+                UseSkill(0, EquippedSkills.Q); // Q 슬롯 시전
+            }
+            if (keyboard.eKey.wasPressedThisFrame) // E 키 시작 여부
+            {
+                UseSkill(1, EquippedSkills.E); // E 슬롯 시전
+            }
+            if (keyboard.rKey.wasPressedThisFrame) // R 키 시작 여부
+            {
+                UseSkill(2, EquippedSkills.R); // R 슬롯 시전
+            }
+        }
+
+        private static bool TextInputFocused() // 텍스트 입력에 사용 중인 UI 확인
+        {
+            GameObject selected = EventSystem.current != null ? EventSystem.current.currentSelectedGameObject : null; // 현재 선택된 UI
+            if (selected == null) // 선택된 UI 부재
+            {
+                return false; // 스킬 입력 허용
+            }
+            InputField field = selected.GetComponentInParent<InputField>(); // 기본 텍스트 입력 필드
+            if (field != null && field.isFocused) // 기본 입력 필드의 실제 편집 여부
+            {
+                return true; // 입력 중 스킬 차단
+            }
+            for (Transform node = selected.transform; node != null; node = node.parent) // 선택된 UI의 부모 검사
+            {
+                Component tmp = node.GetComponent("TMP_InputField"); // 선택적 텍스트 메시 입력 필드
+                if (tmp == null) // 입력 필드 부재 여부
+                {
+                    continue; // 다음 부모 검사
+                }
+                System.Reflection.PropertyInfo focus = tmp.GetType().GetProperty("isFocused"); // 입력 패키지의 포커스 속성
+                return focus != null && focus.GetValue(tmp) is bool active && active; // 실제 텍스트 편집 여부
+            }
+            return false; // 텍스트 입력이 아닌 선택 상태
+        }
+
+        private void UseSkill(int slot, SkillId skill) // 선택 슬롯의 스킬 시전
+        {
+            int healAmount = Mathf.FloorToInt(player.MaximumHealth * Mathf.Max(0f, runtimeSettings.healingFraction)); // 최대 체력 기준 회복량
+            bool allowed = skill != SkillId.HealingLight || (player.Health < player.MaximumHealth && healAmount > 0); // 치유 가능 체력 확인
+            allowed &= combatLayersReady || skill == SkillId.HealingLight; // 피해 스킬의 충돌 계층 확인
+            if (!SkillState.TryUse(slot, skill, allowed)) // 자원과 대기시간 확인
+            {
+                return; // 실패 시 스킬 효과 생략
+            }
+            if (skill == SkillId.Fireball) // 화염탄 시전 여부
+            {
+                float size = BowArrow.VisualRadius * 2f; // 화염탄 표시와 판정 크기
+                GameObject visual = Shape("Fireball", player.transform.position, new Vector2(size, size), new Color(1f, 0.3f, 0.1f), 4); // 화염탄 임시 도형
+                arrows.Add(new BowArrow(visual, aim, runtimeSettings.fireballSpeed, runtimeSettings.fireballRange, CurrentAttack(), obstacleLayer, null, runtimeSettings.fireballMultiplier)); // 발사 순간 방향과 공격력 고정
+            }
+            else if (skill == SkillId.WhirlwindSlash) // 회오리 베기 시전 여부
+            {
+                CastWhirlwind(); // 주변 적의 범위 피해
+            }
+            else if (skill == SkillId.HealingLight) // 치유의 빛 시전 여부
+            {
+                player.Heal(healAmount); // 최대 체력 이내 회복
+                ShowCircleEffect(player.transform.position, 0.6f, "Healing Light", new Color(0.55f, 1f, 0.6f)); // 임시 치유 표시
+            }
+        }
+
+        private int CurrentAttack() // 장착 무기를 반영한 최종 공격력
+        {
+            int weaponAttack = equippedWeapon == WeaponType.Staff ? runtimeSettings.staffAttack : equippedWeapon == WeaponType.Bow ? runtimeSettings.bowAttack : runtimeSettings.swordAttack; // 현재 무기의 공격력
+            return runtimeSettings.playerAttack + weaponAttack; // 무기 공격력 한 번 합산
+        }
+
+        private void CastWhirlwind() // 자기 중심 범위 피해
+        {
+            Vector2 origin = player.transform.position; // 시전 순간 중심 위치
+            float radius = Mathf.Max(0f, runtimeSettings.whirlwindRadius); // 음수 없는 판정 반경
+            ShowCircleEffect(origin, radius, "Whirlwind Slash", new Color(0.95f, 0.9f, 0.45f)); // 임시 범위 표시
+            Physics2D.SyncTransforms(); // 변경된 적과 장애물 위치 반영
+            HashSet<Fighter> targets = new HashSet<Fighter>(); // 공격당 중복 피해 방지
+            foreach (Slime slime in slimes) // 생존 적 순회
+            {
+                Fighter target = slime.Fighter; // 현재 전투 대상
+                if (target == null || target.Dead || !targets.Add(target)) // 사망 또는 중복 대상 확인
+                {
+                    continue; // 피해 대상 제외
+                }
+                Vector2 position = target.transform.position; // 현재 대상 중심
+                if ((position - origin).sqrMagnitude > radius * radius || Physics2D.Linecast(origin, position, swordOcclusionFilter, swordOcclusionHits) != 0) // 범위 밖 또는 장애물 뒤 여부
+                {
+                    continue; // 피해 대상 제외
+                }
+                target.TakeDamage(CombatMath.Damage(CurrentAttack(), runtimeSettings.whirlwindMultiplier, target.Defense, false)); // 공통 피해식 적용
             }
         }
 
@@ -425,6 +536,11 @@ namespace Phi // 프로토타입 영역
 
         private void ShowStaffExplosion(Vector2 position, float radius) // 일시적인 원형 폭발 범위 표시
         {
+            ShowCircleEffect(position, radius, "Staff Explosion", new Color(0.5f, 0.8f, 1f)); // 지팡이 폭발 임시 표시
+        }
+
+        private void ShowCircleEffect(Vector2 position, float radius, string effectName, Color color) // 임시 원형 범위 표시
+        {
             if (explosionSprite == null) // 원형 폭발 그림 생성 여부
             {
                 const int resolution = 64; // 임시 폭발 그림 해상도
@@ -446,7 +562,7 @@ namespace Phi // 프로토타입 영역
                 explosionTexture.Apply(); // 폭발 질감 업로드
                 explosionSprite = Sprite.Create(explosionTexture, new Rect(0f, 0f, resolution, resolution), new Vector2(0.5f, 0.5f), resolution); // 단위 크기의 원형 그림
             }
-            GameObject effect = Shape("Staff Explosion", position, new Vector2(radius * 2f, radius * 2f), new Color(0.5f, 0.8f, 1f), 4); // 폭발 반경에 맞는 임시 표시
+            GameObject effect = Shape(effectName, position, new Vector2(radius * 2f, radius * 2f), color, 4); // 지정 반경과 색상의 임시 표시
             effect.GetComponent<SpriteRenderer>().sprite = explosionSprite; // 원형 테두리 그림 연결
             explosionEffects.Add(effect); // 전투 종료 시 정리할 표시 보관
             Destroy(effect, 0.15f); // 임시 폭발 표시 지속시간
@@ -586,8 +702,29 @@ namespace Phi // 프로토타입 영역
             rect.pivot = new Vector2(0.5f, 0.5f); // 표시 영역 중심
             rect.anchoredPosition = new Vector2(0f, 132f); // 무기 버튼 위쪽 위치
             rect.sizeDelta = new Vector2(1400f, 64f); // 슬롯과 안내 크기
-            string slots = SkillSlotLabel("Q", EquippedSkills.Q, EquippedSkills.QError) + " | " + SkillSlotLabel("E", EquippedSkills.E, EquippedSkills.EError) + " | " + SkillSlotLabel("R", EquippedSkills.R, EquippedSkills.RError); // 슬롯별 상태 문구
-            Label("Skill Status", panel.transform, slots + "\nSKILLS NOT IMPLEMENTED", 20); // 비차단 상태와 미구현 안내
+            skillStatusText = Label("Skill Status", panel.transform, "", 20); // 비차단 스킬 상태 글자
+            UpdateSkillStatus(); // 시작 마나와 슬롯 표시
+        }
+
+        private void UpdateSkillStatus() // 마나와 슬롯별 상태 갱신
+        {
+            string slots = SkillDisplay("Q", EquippedSkills.Q, EquippedSkills.QError, 0) + " | " + SkillDisplay("E", EquippedSkills.E, EquippedSkills.EError, 1) + " | " + SkillDisplay("R", EquippedSkills.R, EquippedSkills.RError, 2); // 슬롯과 대기시간 표시
+            skillStatusText.text = "MP " + Mathf.FloorToInt(SkillState.Mana) + " / " + Mathf.FloorToInt(SkillState.MaximumMana) + "\n" + slots; // 마나와 스킬 상태 표시
+        }
+
+        private string SkillDisplay(string slot, SkillId skill, SkillSlotError error, int index) // 슬롯별 스킬과 대기시간
+        {
+            string label = SkillSlotLabel(slot, skill, error); // 스킬 이름 또는 슬롯 오류
+            if (error != SkillSlotError.None) // 잘못된 슬롯 여부
+            {
+                return label; // 오류 표시 유지
+            }
+            if (skill != SkillId.Fireball && skill != SkillId.WhirlwindSlash && skill != SkillId.HealingLight) // 미구현 스킬 여부
+            {
+                return label + " (NOT IMPLEMENTED)"; // 후보별 미구현 안내
+            }
+            float remaining = SkillState.RemainingCooldown(index); // 남은 슬롯 대기시간
+            return remaining > 0f ? label + " (" + Mathf.CeilToInt(remaining) + "s)" : label + " (READY)"; // 시전 가능 여부 표시
         }
 
         private void CreateEquipmentInterface(Transform canvas) // 전투 중 시험 무기 선택 UI 생성
@@ -689,6 +826,13 @@ namespace Phi // 프로토타입 영역
     public sealed class Fighter : MonoBehaviour // 전투 대상의 실행 상태
     {
         public int Health { get; private set; } // 현재 체력
+        public int MaximumHealth // 최대 체력
+        {
+            get // 최대 체력 읽기
+            {
+                return maximumHealth; // 최대 체력 반환
+            }
+        }
         public int Defense { get; private set; } // 방어력
         public bool Dead { get { return Health <= 0; } } // 사망 여부
         private int maximumHealth; // 최대 체력
@@ -730,9 +874,7 @@ namespace Phi // 프로토타입 영역
                 return; // 사망 대상 중복 피해 방지
             }
             Health = Mathf.Max(0, Health - Mathf.Max(0, damage)); // 체력 감소
-            float ratio = (float)Health / maximumHealth; // 남은 체력 비율
-            healthBar.transform.localScale = new Vector3(ratio, 0.12f, 1f); // 체력 막대 길이 갱신
-            healthBar.transform.localPosition = new Vector3((ratio - 1f) * 0.5f, 0.38f, 0f); // 막대 왼쪽 기준 정렬
+            RefreshHealthBar(); // 체력 막대 갱신
             if (Dead) // 사망 처리
             {
                 body.color = new Color(0.25f, 0.25f, 0.25f, 0.45f); // 사망 도형 표시
@@ -743,6 +885,25 @@ namespace Phi // 프로토타입 영역
                 body.color = Color.white; // 피격 순간 색상 변화
                 flashUntil = Time.time + 0.15f; // 피격 표시 시간
             }
+        }
+
+        public int Heal(int amount) // 살아 있는 대상의 체력 회복
+        {
+            if (Dead || amount <= 0) // 사망 또는 유효하지 않은 회복량 확인
+            {
+                return 0; // 사망 부활과 음수 회복 방지
+            }
+            int restored = Mathf.Min(amount, maximumHealth - Health); // 최대 체력 이내 회복량
+            Health += restored; // 현재 체력 회복
+            RefreshHealthBar(); // 회복된 체력 막대 갱신
+            return restored; // 실제 회복량 반환
+        }
+
+        private void RefreshHealthBar() // 현재 체력에 맞춘 막대 표시
+        {
+            float ratio = (float)Health / maximumHealth; // 남은 체력 비율
+            healthBar.transform.localScale = new Vector3(ratio, 0.12f, 1f); // 체력 막대 길이 갱신
+            healthBar.transform.localPosition = new Vector3((ratio - 1f) * 0.5f, 0.38f, 0f); // 막대 왼쪽 기준 정렬
         }
     }
 
