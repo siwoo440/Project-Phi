@@ -1,0 +1,6 @@
+{
+  "name": "Phi.Editor",
+  "references": ["Phi"],
+  "includePlatforms": ["Editor"],
+  "autoReferenced": true
+}

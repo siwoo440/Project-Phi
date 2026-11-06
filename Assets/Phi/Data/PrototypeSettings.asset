@@ -1,0 +1,34 @@
+%YAML 1.1
+%TAG !u! tag:unity3d.com,2011:
+--- !u!114 &11400000
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 0}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 1e7508fa126e4917affe2c8900dc161c, type: 3}
+  m_Name: PrototypeSettings
+  m_EditorClassIdentifier: Phi::Phi.PrototypeSettings
+  playerHealth: 100
+  playerAttack: 10
+  playerDefense: 5
+  playerSpeed: 4
+  swordAttack: 12
+  swordInterval: 0.55
+  swordRange: 1.7
+  swordAngle: 90
+  swordTargets: 3
+  slimeHealth: 50
+  slimeAttack: 8
+  slimeDefense: 2
+  slimeSpeed: 1.5
+  slimeAttackRange: 0.9
+  slimeAttackInterval: 1.2
+  slimeWindup: 0.4
+  slimeDashDistance: 0.8
+  slimeDashSpeed: 5
+  slimeHitDistance: 0.65
+  slimeCount: 3

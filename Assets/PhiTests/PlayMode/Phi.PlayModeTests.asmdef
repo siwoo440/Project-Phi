@@ -1,0 +1,5 @@
+{
+  "name": "Phi.PlayModeTests",
+  "references": ["Phi", "Unity.InputSystem", "Unity.ugui"],
+  "optionalUnityReferences": ["TestAssemblies"]
+}

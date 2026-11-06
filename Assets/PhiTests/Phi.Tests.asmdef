@@ -1,0 +1,6 @@
+{
+  "name": "Phi.Tests",
+  "references": ["Phi"],
+  "includePlatforms": ["Editor"],
+  "optionalUnityReferences": ["TestAssemblies"]
+}

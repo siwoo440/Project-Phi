@@ -1,0 +1,30 @@
+using UnityEngine; // 유니티 자료형
+
+namespace Phi // 전투 설정 영역
+{
+    [CreateAssetMenu(menuName = "Phi/Prototype Settings")] // 설정 에셋 생성 메뉴
+    public sealed class PrototypeSettings : ScriptableObject // 전투 조정 데이터
+    {
+        public int playerHealth = 100; // 플레이어 최대 체력
+        public int playerAttack = 10; // 플레이어 기본 공격력
+        public int playerDefense = 5; // 플레이어 기본 방어력
+        public float playerSpeed = 4f; // 플레이어 이동속도
+        public int swordAttack = 12; // 검 공격력
+        public float swordInterval = 0.55f; // 검 공격 간격
+        public float swordRange = 1.7f; // 검 공격 사거리
+        public float swordAngle = 90f; // 검 공격 각도
+        public int swordTargets = 3; // 검 최대 대상 수
+        public int slimeHealth = 50; // 슬라임 최대 체력
+        public int slimeAttack = 8; // 슬라임 공격력
+        public int slimeDefense = 2; // 슬라임 방어력
+        public float slimeSpeed = 1.5f; // 임시 슬라임 이동속도
+        public float slimeAttackRange = 0.9f; // 임시 슬라임 공격 거리
+        public float slimeAttackInterval = 1.2f; // 임시 슬라임 공격 간격
+        public float slimeWindup = 0.4f; // 임시 슬라임 공격 예고 시간
+        public float slimeDashDistance = 0.8f; // 임시 슬라임 돌진 거리
+        public float slimeDashSpeed = 5f; // 임시 슬라임 돌진 속도
+        public float slimeHitDistance = 0.65f; // 임시 슬라임 적중 거리
+        public int slimeCount = 3; // 임시 시험 적 수
+    }
+}
+

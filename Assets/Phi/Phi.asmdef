@@ -1,0 +1,6 @@
+{
+  "name": "Phi",
+  "references": ["Unity.InputSystem", "UnityEngine.UI"],
+  "autoReferenced": true
+}
+
