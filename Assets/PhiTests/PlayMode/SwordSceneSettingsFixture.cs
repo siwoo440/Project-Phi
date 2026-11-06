@@ -52,6 +52,7 @@ internal sealed class SwordSceneSettingsFixture : IDisposable // 검 전용 씬 
             }
             Current = UnityEngine.Object.Instantiate(original); // 원본을 보존한 시험 설정 복제
             copies.Add(Current); // 시험 후 제거할 복제 설정 등록
+            SkillSettingsTestFixture.UseRecommended(Current); // 검 시험의 유효한 스킬 조합
             Current.startingWeapon = WeaponType.Sword; // 검을 장착한 전투 시작
             Current.playerHealth = 100; // 검 시험의 플레이어 체력
             Current.playerAttack = 10; // 검 시험의 기본 공격력
@@ -78,4 +79,3 @@ internal sealed class SwordSceneSettingsFixture : IDisposable // 검 전용 씬 
         }
     }
 }
-

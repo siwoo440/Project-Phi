@@ -17,6 +17,7 @@ public class StaffProjectileTests // 지팡이 폭발 공격 검증
     private Mouse mouse; // 가상 마우스
     private PrototypeSettings trial; // 독립 전투 설정
     private SceneMapTestFixture mapFixture; // 씬 맵 시험 격리
+    private SkillSettingsTestFixture skillFixture; // 재시작 스킬 설정 격리
     private FieldInfo weaponField; // 시작 무기 설정 필드
     private FieldInfo speedField; // 마법탄 속도 설정 필드
     private readonly List<GameObject> obstacles = new List<GameObject>(); // 시험 장애물 목록
@@ -43,6 +44,7 @@ public class StaffProjectileTests // 지팡이 폭발 공격 검증
         UnityAction<Scene, LoadSceneMode> loaded = (scene, mode) => // 전투 시작 전 시험 설정
         {
             trial = ScriptableObject.CreateInstance<PrototypeSettings>(); // 원본을 보존할 시험 설정
+            SkillSettingsTestFixture.UseRecommended(trial); // 투사체 시험의 유효한 스킬 조합
             trial.slimeCount = 6; // 폭발 대상 상한을 넘는 시험 적 수
             trial.slimeSpeed = 0f; // 시험 중 적 이동 방지
             if (supportsStaff) // 지팡이 선택 지원 여부
@@ -57,6 +59,7 @@ public class StaffProjectileTests // 지팡이 폭발 공격 검증
         yield return null; // 씬 로드 대기
         yield return null; // 전투 초기화 대기
         SceneManager.sceneLoaded -= loaded; // 씬 로드 콜백 해제
+        skillFixture = new SkillSettingsTestFixture(); // 이후 재시작 씬의 스킬 설정 격리
         Assert.That(supportsStaff, Is.True, "시작 무기에서 지팡이를 선택할 수 있어야 합니다."); // 지팡이 선택 지원 확인
         Assert.That(speedField, Is.Not.Null, "마법탄 속도 설정이 필요합니다."); // 조정 가능한 마법탄 속도 확인
     }
@@ -76,6 +79,10 @@ public class StaffProjectileTests // 지팡이 폭발 공격 검증
             }
         }
         obstacles.Clear(); // 시험 장애물 목록 초기화
+        if (skillFixture != null) // 재시작 스킬 설정 격리 존재 여부
+        {
+            skillFixture.Dispose(); // 재시작 이벤트와 복제 설정 정리
+        }
         if (mapFixture != null) // 시험 맵 격리 존재 여부
         {
             mapFixture.Dispose(); // 시험 맵 이벤트와 그림 정리

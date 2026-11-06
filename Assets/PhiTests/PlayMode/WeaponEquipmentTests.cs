@@ -18,6 +18,7 @@ public class WeaponEquipmentTests // 전투 중 시험 무기 장착 검증
     private PrototypeSettings trial; // 원본을 보존할 독립 시험 설정
     private PrototypeBootstrap bootstrap; // 실제 전투 구성 요소
     private SceneMapTestFixture mapFixture; // 씬 맵 시험 격리
+    private SkillSettingsTestFixture skillFixture; // 재시작 스킬 설정 격리
     private bool previousRunInBackground; // 기존 백그라운드 실행 설정
     private InputSettings.BackgroundBehavior previousBackgroundBehavior; // 기존 포커스 처리 설정
     private InputSettings.EditorInputBehaviorInPlayMode previousEditorInputBehavior; // 기존 에디터 입력 경로
@@ -39,6 +40,7 @@ public class WeaponEquipmentTests // 전투 중 시험 무기 장착 검증
             FieldInfo settingsField = typeof(PrototypeBootstrap).GetField("settings", BindingFlags.Instance | BindingFlags.NonPublic); // 씬의 설정 참조 필드
             asset = (PrototypeSettings)settingsField.GetValue(bootstrap); // 원본 설정 에셋 보관
             trial = Object.Instantiate(asset); // 원본을 보존할 시험 설정 복제
+            SkillSettingsTestFixture.UseRecommended(trial); // 무기 시험의 유효한 스킬 조합
             trial.startingWeapon = WeaponType.Sword; // 시험 시작 무기
             trial.playerHealth = 100; // 시험 플레이어 체력
             trial.playerAttack = 10; // 시험 플레이어 기본 공격력
@@ -77,6 +79,7 @@ public class WeaponEquipmentTests // 전투 중 시험 무기 장착 검증
         yield return null; // 씬 로드 대기
         yield return null; // 전투 초기화 대기
         SceneManager.sceneLoaded -= loaded; // 씬 로드 콜백 해제
+        skillFixture = new SkillSettingsTestFixture(); // 이후 재시작 씬의 스킬 설정 격리
     }
 
     [UnityTearDown] // 각 시험의 정리
@@ -85,6 +88,10 @@ public class WeaponEquipmentTests // 전투 중 시험 무기 장착 검증
         if (mouse != null && mouse.added) // 가상 장치 존재 여부
         {
             InputSystem.RemoveDevice(mouse); // 가상 마우스 제거
+        }
+        if (skillFixture != null) // 재시작 스킬 설정 격리 존재 여부
+        {
+            skillFixture.Dispose(); // 재시작 이벤트와 복제 설정 정리
         }
         if (mapFixture != null) // 시험 맵 격리 존재 여부
         {

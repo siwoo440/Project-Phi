@@ -23,6 +23,9 @@ namespace Phi // 전투 설정 영역
         public const float SlimeRadius = 0.425f; // 슬라임 예고 중 최대 도형 반폭
         public const float MinimumMapHalfSize = SlimeRadius + BoundaryThickness; // 도형과 테두리를 담는 최소 반경
         public WeaponType startingWeapon = WeaponType.Sword; // 전투 시작 무기 선택
+        public SkillId startingSkillQ = SkillId.Fireball; // 시험용 Q 시작 스킬
+        public SkillId startingSkillE = SkillId.WhirlwindSlash; // 시험용 E 시작 스킬
+        public SkillId startingSkillR = SkillId.HealingLight; // 시험용 R 시작 스킬
         public int swordAttack = 12; // 검 공격력
         public float swordInterval = 0.55f; // 검 공격 간격
         public float swordRange = 1.7f; // 검 공격 사거리

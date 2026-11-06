@@ -17,6 +17,7 @@ public class BowProjectileTests // 활 공격과 투사체 검증
     private Mouse mouse; // 가상 마우스
     private PrototypeSettings trial; // 독립 전투 설정
     private SceneMapTestFixture mapFixture; // 씬 맵 시험 격리
+    private SkillSettingsTestFixture skillFixture; // 재시작 스킬 설정 격리
     private FieldInfo weaponField; // 시작 무기 설정 필드
     private FieldInfo speedField; // 화살 속도 설정 필드
     private readonly List<GameObject> obstacles = new List<GameObject>(); // 시험 장애물 목록
@@ -42,6 +43,7 @@ public class BowProjectileTests // 활 공격과 투사체 검증
         UnityAction<Scene, LoadSceneMode> loaded = (scene, mode) => // 전투 시작 전 시험 설정
         {
             trial = ScriptableObject.CreateInstance<PrototypeSettings>(); // 원본을 보존할 시험 설정
+            SkillSettingsTestFixture.UseRecommended(trial); // 투사체 시험의 유효한 스킬 조합
             trial.slimeSpeed = 0f; // 시험 중 적 이동 방지
             if (weaponField != null) // 시작 무기 필드 존재 여부
             {
@@ -55,6 +57,7 @@ public class BowProjectileTests // 활 공격과 투사체 검증
         yield return null; // 씬 로드 대기
         yield return null; // 전투 초기화 대기
         SceneManager.sceneLoaded -= loaded; // 씬 로드 콜백 해제
+        skillFixture = new SkillSettingsTestFixture(); // 이후 재시작 씬의 스킬 설정 격리
         Assert.That(weaponField, Is.Not.Null, "시작 무기 선택 설정이 필요합니다."); // 활 선택 지원 확인
         Assert.That(speedField, Is.Not.Null, "화살 속도 설정이 필요합니다."); // 조정 가능한 화살 속도 확인
     }
@@ -74,6 +77,10 @@ public class BowProjectileTests // 활 공격과 투사체 검증
             }
         }
         obstacles.Clear(); // 시험 장애물 목록 초기화
+        if (skillFixture != null) // 재시작 스킬 설정 격리 존재 여부
+        {
+            skillFixture.Dispose(); // 재시작 이벤트와 복제 설정 정리
+        }
         if (mapFixture != null) // 시험 맵 격리 존재 여부
         {
             mapFixture.Dispose(); // 시험 맵 이벤트와 그림 정리

@@ -15,6 +15,7 @@ namespace Phi // 프로토타입 영역
         private MapRegion mapRegion; // 씬 맵의 실제 경계
         private PrototypeSettings runtimeSettings; // 현재 전투 설정
         private WeaponType equippedWeapon; // 현재 전투에서 장착한 무기
+        public SkillLoadout EquippedSkills { get; private set; } // 설정과 분리된 전투 스킬 슬롯
         private Fighter player; // 플레이어 전투 상태
         private readonly List<Slime> slimes = new List<Slime>(); // 슬라임 목록
         private readonly List<BowArrow> arrows = new List<BowArrow>(); // 발사된 화살 상태 목록
@@ -48,6 +49,15 @@ namespace Phi // 프로토타입 영역
         {
             runtimeSettings = settings != null ? settings : ScriptableObject.CreateInstance<PrototypeSettings>(); // 설정이 없을 때 기본값 사용
             equippedWeapon = runtimeSettings.startingWeapon; // 설정값에서 전투 시작 무기 복사
+            EquippedSkills = SkillLoadout.Create(runtimeSettings.startingSkillQ, runtimeSettings.startingSkillE, runtimeSettings.startingSkillR); // 전투 시작 스킬 복사와 슬롯 검증
+            List<string> skillErrors = new List<string>(); // 슬롯별 오류 목록
+            AddSkillError(skillErrors, "Q", EquippedSkills.QError); // Q 슬롯 오류 수집
+            AddSkillError(skillErrors, "E", EquippedSkills.EError); // E 슬롯 오류 수집
+            AddSkillError(skillErrors, "R", EquippedSkills.RError); // R 슬롯 오류 수집
+            if (skillErrors.Count > 0) // 비활성화된 슬롯 존재 여부
+            {
+                Debug.LogError("스킬 장착 오류: " + string.Join(", ", skillErrors)); // 슬롯별 오류 보고
+            }
             if (!InitializeMap()) // 씬 맵과 필수 경계 확인
             {
                 enabled = false; // 맵 오류 시 전투 갱신 중지
@@ -525,6 +535,7 @@ namespace Phi // 프로토타입 영역
             healthText = Label("Health", healthPanel.transform, "HP", 28); // 체력 글자
             UpdateHealth(); // 초기 체력 표시
             CreateEquipmentInterface(canvasObject.transform); // 전투 무기 선택 버튼 준비
+            CreateSkillInterface(canvasObject.transform); // 현재 장착과 미구현 상태 표시
             gameOverPanel = Panel("Game Over", canvasObject.transform, Vector2.zero, new Vector2(440f, 220f), new Vector2(0.5f, 0.5f)); // 사망 배경
             GameObject title = new GameObject("Title", typeof(RectTransform)); // 사망 글자 오브젝트
             title.transform.SetParent(gameOverPanel.transform, false); // 사망 화면에 연결
@@ -545,6 +556,38 @@ namespace Phi // 프로토타입 영역
             button.onClick.AddListener(Restart); // 재시작 연결
             Label("Button Label", buttonObject.transform, "RESTART", 26); // 버튼 글자
             gameOverPanel.SetActive(false); // 시작 시 사망 화면 숨김
+        }
+
+        private static void AddSkillError(List<string> errors, string slot, SkillSlotError error) // 잘못된 슬롯의 오류 수집
+        {
+            if (error != SkillSlotError.None) // 슬롯 오류 여부
+            {
+                errors.Add(slot + " " + error.ToString().ToUpperInvariant()); // 슬롯과 오류 종류 기록
+            }
+        }
+
+        private static string SkillSlotLabel(string slot, SkillId id, SkillSlotError error) // 슬롯별 HUD 문구
+        {
+            if (error != SkillSlotError.None) // 비활성 슬롯 여부
+            {
+                return slot + ": " + error.ToString().ToUpperInvariant(); // 오류 종류 표시
+            }
+            SkillCatalog.TryGet(id, out SkillDefinition definition); // 유효한 스킬 정의 조회
+            return slot + ": " + definition.EnglishName; // 임시 영문 스킬 표시
+        }
+
+        private void CreateSkillInterface(Transform canvas) // 비차단 스킬 상태 표시 생성
+        {
+            GameObject panel = new GameObject("Skill Panel", typeof(RectTransform)); // 입력을 막지 않는 표시 영역
+            panel.transform.SetParent(canvas, false); // 화면 캔버스 연결
+            RectTransform rect = panel.GetComponent<RectTransform>(); // 표시 영역 위치
+            rect.anchorMin = new Vector2(0.5f, 0f); // 화면 아래쪽 기준점
+            rect.anchorMax = new Vector2(0.5f, 0f); // 화면 아래쪽 기준점
+            rect.pivot = new Vector2(0.5f, 0.5f); // 표시 영역 중심
+            rect.anchoredPosition = new Vector2(0f, 132f); // 무기 버튼 위쪽 위치
+            rect.sizeDelta = new Vector2(1400f, 64f); // 슬롯과 안내 크기
+            string slots = SkillSlotLabel("Q", EquippedSkills.Q, EquippedSkills.QError) + " | " + SkillSlotLabel("E", EquippedSkills.E, EquippedSkills.EError) + " | " + SkillSlotLabel("R", EquippedSkills.R, EquippedSkills.RError); // 슬롯별 상태 문구
+            Label("Skill Status", panel.transform, slots + "\nSKILLS NOT IMPLEMENTED", 20); // 비차단 상태와 미구현 안내
         }
 
         private void CreateEquipmentInterface(Transform canvas) // 전투 중 시험 무기 선택 UI 생성
