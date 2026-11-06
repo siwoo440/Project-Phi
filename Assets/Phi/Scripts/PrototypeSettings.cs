@@ -26,6 +26,7 @@ namespace Phi // 전투 설정 영역
         public float dodgeDuration = 0.25f; // 임시 회피 이동 시간
         public float dodgeDistance = 2f; // 임시 회피 이동 거리
         public float dodgeInvulnerability = 0.25f; // 임시 회피 무적 시간
+        public float interactionRange = 1.5f; // 임시 상호작용 선택 반경
         [HideInInspector] public float mapHalfWidth = 10f; // 이전 가로 맵 설정 보존
         [HideInInspector] public float mapHalfHeight = 6f; // 이전 세로 맵 설정 보존
         public const float BoundaryThickness = 0.12f; // 공간 테두리 두께

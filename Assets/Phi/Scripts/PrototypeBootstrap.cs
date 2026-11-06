@@ -26,6 +26,16 @@ namespace Phi // 프로토타입 영역
             get; // 전투 회피 상태 읽기
             private set; // 전투 회피 상태 내부 설정
         }
+        public Interactable SelectedInteraction // 현재 선택된 상호작용 대상
+        {
+            get; // 선택 대상 읽기
+            private set; // 선택 대상 내부 설정
+        }
+        public int CollectedLootCount // 이번 전투의 임시 수집 횟수
+        {
+            get; // 임시 수집 횟수 읽기
+            private set; // 임시 수집 횟수 내부 설정
+        }
         private Fighter player; // 플레이어 전투 상태
         private readonly List<Slime> slimes = new List<Slime>(); // 슬라임 목록
         private readonly List<BowArrow> arrows = new List<BowArrow>(); // 발사된 화살 상태 목록
@@ -33,13 +43,16 @@ namespace Phi // 프로토타입 영역
         private readonly List<Collider2D> arrowOverlaps = new List<Collider2D>(); // 화살 출발점 충돌 결과
         private readonly List<RaycastHit2D> dodgeHits = new List<RaycastHit2D>(); // 회피 경로의 장애물 충돌 결과
         private readonly List<Collider2D> dodgeOverlaps = new List<Collider2D>(); // 회피 시작점의 장애물 충돌 결과
+        private readonly List<RaycastHit2D> interactionHits = new List<RaycastHit2D>(); // 상호작용 경로의 장애물 충돌 결과
         private readonly Dictionary<Collider2D, Vector2> dodgeSafeContacts = new Dictionary<Collider2D, Vector2>(); // 실제 침투 없는 검증된 접촉 법선
         private readonly Dictionary<Collider2D, float> dodgeContactGaps = new Dictionary<Collider2D, float>(); // 검증된 접촉의 보정된 실제 간격
         private readonly List<GameObject> explosionEffects = new List<GameObject>(); // 일시적인 폭발 표시 목록
         private Camera gameCamera; // 추적 카메라
         private GameObject aimMarker; // 조준 표시
+        private GameObject interactionMarker; // 선택 대상의 월드 표시
         private Text healthText; // 체력 글자
         private Text skillStatusText; // 마나와 스킬 상태 글자
+        private Text interactionStatusText; // 상호작용 대상과 시험 수집 표시
         private readonly Dictionary<WeaponType, Text> equipmentLabels = new Dictionary<WeaponType, Text>(); // 무기별 선택 표시
         private readonly List<Button> equipmentButtons = new List<Button>(); // 무기 장착 버튼 목록
         private GameObject gameOverPanel; // 사망 화면
@@ -146,6 +159,8 @@ namespace Phi // 프로토타입 영역
         {
             if (player == null || player.Dead) // 플레이어 사망 여부
             {
+                SetInteractionSelection(null); // 사망 중 대상 선택 해제
+                UpdateInteractionStatus(); // 남은 시험 수집 횟수 표시
                 SetEquipmentButtonsInteractable(false); // 사망 중 무기 전환 차단 표시
                 ClearArrows(); // 전투 종료 시 기존 화살 제거
                 return; // 사망 중 전투 입력 중지
@@ -181,6 +196,7 @@ namespace Phi // 프로토타입 영역
             {
                 ClearArrows(); // 사망 후 화살 피해 방지
             }
+            UpdateInteraction(!suppressAttack && !player.Dead); // 대상 선택과 회피 중 입력 차단
             UpdateHealth(); // 체력 표시
             UpdateSkillStatus(); // 마나와 슬롯 상태 표시
         }
@@ -245,6 +261,8 @@ namespace Phi // 프로토타입 영역
             player = playerObject.AddComponent<Fighter>(); // 플레이어 체력 상태
             player.Initialize(runtimeSettings.playerHealth, runtimeSettings.playerDefense); // 플레이어 능력치 설정
             aimMarker = Shape("Aim", Vector2.zero, new Vector2(0.8f, 0.12f), Color.white, 3); // 조준 방향 표시
+            interactionMarker = Shape("Interaction Marker", Vector2.zero, new Vector2(0.2f, 0.2f), new Color(1f, 0.9f, 0.2f), 5); // 선택 대상의 임시 표시
+            interactionMarker.SetActive(false); // 선택 대상이 없을 때 표시 숨김
             for (int index = 0; index < Mathf.Max(0, runtimeSettings.slimeCount); index++) // 시험 슬라임 생성 반복
             {
                 float angle = index * Mathf.PI * 2f / Mathf.Max(1, runtimeSettings.slimeCount); // 배치 각도
@@ -258,6 +276,7 @@ namespace Phi // 프로토타입 영역
                 slimeCollider.size = Vector2.one; // 슬라임 도형과 같은 충돌 크기
                 Fighter fighter = slimeObject.AddComponent<Fighter>(); // 슬라임 체력 상태
                 fighter.Initialize(runtimeSettings.slimeHealth, runtimeSettings.slimeDefense); // 슬라임 능력치 설정
+                fighter.Died += SpawnSlimeLoot; // 슬라임 사망 전이의 시험 전리품 연결
                 slimes.Add(new Slime(fighter)); // 슬라임 행동 상태 추가
             }
         }
@@ -591,6 +610,14 @@ namespace Phi // 프로토타입 영역
         private void OnDestroy() // 입력 이벤트 정리
         {
             ClearArrows(); // 장면 종료 시 화살 상태 정리
+            SetInteractionSelection(null); // 장면 종료 시 대상 선택 해제
+            foreach (Slime slime in slimes) // 등록된 슬라임 순회
+            {
+                if (slime.Fighter != null) // 남아 있는 슬라임 여부
+                {
+                    slime.Fighter.Died -= SpawnSlimeLoot; // 사망 전리품 연결 해제
+                }
+            }
             if (dodgeProbe != null) // 임시 회피 검사 도형 존재 여부
             {
                 Destroy(dodgeProbe.gameObject); // 전투 종료 시 검사 오브젝트 제거
@@ -621,6 +648,108 @@ namespace Phi // 프로토타입 영역
             List<RaycastResult> results = new List<RaycastResult>(); // UI 검사 결과 목록
             EventSystem.current.RaycastAll(pointer, results); // UI 영역 검사
             return results.Count > 0; // UI 겹침 여부
+        }
+
+        private void SpawnSlimeLoot(Fighter source) // 슬라임 사망 전이의 시험 전리품 생성
+        {
+            GameObject loot = Shape("Slime Loot", source.transform.position, new Vector2(0.3f, 0.3f), new Color(0.8f, 1f, 0.35f), 2); // 임시 바닥 전리품 표시
+            Interactable target = loot.AddComponent<Interactable>(); // 공통 상호작용 대상 연결
+            target.Configure(InteractionKind.Loot, "SLIME GEL (TEST)"); // 시험 아이템 이름과 식별자 설정
+        }
+
+        private void UpdateInteraction(bool allowInput) // 가장 가까운 대상 선택과 짧은 F 입력
+        {
+            if (player == null || player.Dead || !combatLayersReady) // 사망 또는 벽 판정 불가능 여부
+            {
+                SetInteractionSelection(null); // 잘못된 선택과 수집 방지
+                UpdateInteractionStatus(); // 현재 시험 수집 횟수 표시
+                return; // 상호작용 입력 중지
+            }
+            Physics2D.SyncTransforms(); // 대상과 장애물의 최신 위치 반영
+            Vector2 origin = player.transform.position; // 플레이어 중심 위치
+            float range = Mathf.Max(0f, runtimeSettings.interactionRange); // 음수 없는 시험 반경
+            float nearest = float.PositiveInfinity; // 현재 선택 대상의 거리 제곱
+            Interactable selected = null; // 가장 가까운 유효 대상
+            foreach (Interactable candidate in Interactable.Active) // 등록 순서의 활성 대상 순회
+            {
+                if (candidate == null || !candidate.IsAvailable) // 제거되었거나 비활성 대상 여부
+                {
+                    continue; // 선택 후보 제외
+                }
+                Vector2 destination = candidate.transform.position; // 상호작용 대상 중심
+                float distance = (destination - origin).sqrMagnitude; // 플레이어와 대상의 거리 제곱
+                if (distance > range * range || distance >= nearest || InteractionOccluded(origin, destination, candidate)) // 반경·등록 순서·벽 차단 검사
+                {
+                    continue; // 더 멀거나 접근할 수 없는 대상 제외
+                }
+                nearest = distance; // 가장 가까운 거리 갱신
+                selected = candidate; // 현재 대상 선택
+            }
+            SetInteractionSelection(selected); // 선택 표시와 월드 마커 갱신
+            Keyboard keyboard = Keyboard.current; // 현재 키보드
+            if (allowInput && !TextInputFocused() && keyboard != null && keyboard.fKey.wasPressedThisFrame && selected != null) // 짧은 F 입력과 유효 대상 확인
+            {
+                bool loot = selected.Kind == InteractionKind.Loot; // 시험 전리품 수집 여부
+                if (selected.TryInteract() && loot) // 유효한 전리품의 단일 수집
+                {
+                    CollectedLootCount++; // 이번 전투의 시험 수집 횟수 증가
+                    SetInteractionSelection(null); // 수집 직후 이전 선택 해제
+                }
+            }
+            UpdateInteractionStatus(); // 대상과 시험 수집 표시 갱신
+        }
+
+        private bool InteractionOccluded(Vector2 origin, Vector2 destination, Interactable candidate) // 비트리거 장애물의 시야 차단
+        {
+            interactionHits.Clear(); // 이전 장애물 검사 결과 제거
+            Physics2D.Linecast(origin, destination, swordOcclusionFilter, interactionHits); // 대상 중심까지의 장애물 검사
+            foreach (RaycastHit2D hit in interactionHits) // 겹친 장애물 순회
+            {
+                if (hit.collider != null && !hit.collider.transform.IsChildOf(candidate.transform)) // 대상 자신의 충돌체가 아닌 장애물 여부
+                {
+                    return true; // 다른 장애물 뒤의 대상 제외
+                }
+            }
+            return false; // 장애물에 가려지지 않은 대상
+        }
+
+        private void SetInteractionSelection(Interactable target) // 단일 대상 선택과 표시 갱신
+        {
+            if (SelectedInteraction != target) // 선택 대상 변경 여부
+            {
+                if (SelectedInteraction != null) // 이전 선택 대상 존재 여부
+                {
+                    SelectedInteraction.SetSelected(false); // 이전 대상 선택 해제
+                }
+                SelectedInteraction = target; // 새 대상 참조 보관
+            }
+            if (SelectedInteraction != null) // 새 대상 존재 여부
+            {
+                SelectedInteraction.SetSelected(true); // 대상 선택 상태 표시
+            }
+            if (interactionMarker != null) // 월드 선택 표시 존재 여부
+            {
+                interactionMarker.SetActive(SelectedInteraction != null); // 선택 대상 유무에 따른 표시
+                if (SelectedInteraction != null) // 선택된 대상의 위치 확인
+                {
+                    interactionMarker.transform.position = SelectedInteraction.transform.position + new Vector3(0f, 0.5f, 0f); // 대상 위쪽의 선택 표시
+                }
+            }
+        }
+
+        private void UpdateInteractionStatus() // 대상 안내와 임시 수집 횟수 표시
+        {
+            if (interactionStatusText == null) // 인터페이스 준비 여부
+            {
+                return; // 초기화 전 표시 생략
+            }
+            string selection = "NO TARGET"; // 대상이 없을 때의 안내
+            if (SelectedInteraction != null) // 선택된 대상 존재 여부
+            {
+                bool loot = SelectedInteraction.Kind == InteractionKind.Loot; // 실제 시험 수집 대상 여부
+                selection = "F: " + SelectedInteraction.DisplayName + (loot ? "" : " (NOT IMPLEMENTED)"); // 대상과 미구현 안내
+            }
+            interactionStatusText.text = selection + "\nTEST LOOT " + CollectedLootCount; // 전투 중 시험 수집 카운트
         }
 
         private void Attack() // 선택한 무기의 일반 공격
@@ -829,6 +958,7 @@ namespace Phi // 프로토타입 영역
             UpdateHealth(); // 초기 체력 표시
             CreateEquipmentInterface(canvasObject.transform); // 전투 무기 선택 버튼 준비
             CreateSkillInterface(canvasObject.transform); // 현재 장착과 미구현 상태 표시
+            CreateInteractionInterface(canvasObject.transform); // 상호작용과 시험 수집 안내 준비
             gameOverPanel = Panel("Game Over", canvasObject.transform, Vector2.zero, new Vector2(440f, 220f), new Vector2(0.5f, 0.5f)); // 사망 배경
             GameObject title = new GameObject("Title", typeof(RectTransform)); // 사망 글자 오브젝트
             title.transform.SetParent(gameOverPanel.transform, false); // 사망 화면에 연결
@@ -849,6 +979,20 @@ namespace Phi // 프로토타입 영역
             button.onClick.AddListener(Restart); // 재시작 연결
             Label("Button Label", buttonObject.transform, "RESTART", 26); // 버튼 글자
             gameOverPanel.SetActive(false); // 시작 시 사망 화면 숨김
+        }
+
+        private void CreateInteractionInterface(Transform canvas) // 전투 입력을 막지 않는 상호작용 안내
+        {
+            GameObject panel = new GameObject("Interaction Panel", typeof(RectTransform)); // 상호작용 안내 영역
+            panel.transform.SetParent(canvas, false); // 화면 캔버스 연결
+            RectTransform rect = panel.GetComponent<RectTransform>(); // 안내 영역 위치
+            rect.anchorMin = new Vector2(1f, 1f); // 화면 오른쪽 위 기준점
+            rect.anchorMax = new Vector2(1f, 1f); // 화면 오른쪽 위 기준점
+            rect.pivot = new Vector2(1f, 1f); // 안내 영역 오른쪽 위 기준
+            rect.anchoredPosition = new Vector2(-10f, -10f); // 화면 가장자리 여백
+            rect.sizeDelta = new Vector2(500f, 72f); // 대상과 수집 안내 크기
+            interactionStatusText = Label("Interaction Status", panel.transform, "", 20); // 포인터를 차단하지 않는 안내 글자
+            UpdateInteractionStatus(); // 초기 대상과 수집 횟수 표시
         }
 
         private static void AddSkillError(List<string> errors, string slot, SkillSlotError error) // 잘못된 슬롯의 오류 수집
@@ -1002,6 +1146,7 @@ namespace Phi // 프로토타입 영역
 
     public sealed class Fighter : MonoBehaviour // 전투 대상의 실행 상태
     {
+        public event System.Action<Fighter> Died; // 생존에서 사망으로 바뀐 순간 알림
         public int Health { get; private set; } // 현재 체력
         public int MaximumHealth // 최대 체력
         {
@@ -1062,6 +1207,7 @@ namespace Phi // 프로토타입 영역
             {
                 body.color = new Color(0.25f, 0.25f, 0.25f, 0.45f); // 사망 도형 표시
                 healthBar.enabled = false; // 사망 대상 체력 막대 숨김
+                Died?.Invoke(this); // 사망 전이의 단일 알림
             }
             else // 생존 대상 피격 처리
             {
