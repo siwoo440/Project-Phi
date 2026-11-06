@@ -78,7 +78,6 @@ public class SkillLoadoutPlayModeTests // 전투 시작 스킬 슬롯 검증
         StringAssert.Contains("ICE SHARD", status.text); // Q 후보 이름 안내
         StringAssert.Contains("SHIELD", status.text); // E 후보 이름 안내
         StringAssert.Contains("TELEPORT", status.text); // R 후보 이름 안내
-        Assert.That(status.raycastTarget, Is.False); // 안내 글자의 전투 입력 차단 방지
         SetSetting(trial, "startingSkillQ", "Fireball"); // 실행 후 시험 설정의 Q 변경
         AssertLoadout("IceShard", "Shield", "Teleport"); // 실행 상태의 독립 복사 유지
         yield return ClickButton("Equip Bow"); // 실제 활 버튼 클릭

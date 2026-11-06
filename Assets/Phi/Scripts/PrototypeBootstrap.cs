@@ -283,6 +283,10 @@ namespace Phi // 프로토타입 영역
 
         private void ReadMovement() // 키보드 이동
         {
+            if (CombatInputBlocked()) // UI의 전투 입력 점유 여부
+            {
+                return; // 화면 입력 중 플레이어 이동 차단
+            }
             Vector2 movement = MovementInput() * runtimeSettings.playerSpeed * Time.deltaTime; // 정규화 이동량
             player.transform.position = mapRegion.ClampPosition((Vector2)player.transform.position + movement, PrototypeSettings.PlayerRadius); // 경계 안의 플레이어 위치 변경
         }
@@ -301,7 +305,7 @@ namespace Phi // 프로토타입 영역
         private bool ReadDodgeInput() // Shift 회피 입력과 시작 방향
         {
             Keyboard keyboard = Keyboard.current; // 현재 키보드
-            if (keyboard == null || TextInputFocused() || !combatLayersReady || !(keyboard.leftShiftKey.wasPressedThisFrame || keyboard.rightShiftKey.wasPressedThisFrame)) // 입력과 충돌 검사 조건
+            if (keyboard == null || CombatInputBlocked() || !combatLayersReady || !(keyboard.leftShiftKey.wasPressedThisFrame || keyboard.rightShiftKey.wasPressedThisFrame)) // 입력과 충돌 검사 조건
             {
                 return false; // 회피 시작 없음
             }
@@ -447,7 +451,12 @@ namespace Phi // 프로토타입 영역
                 return; // 마우스 입력 없음
             }
             UpdateAim(); // 이동 이후 조준 표시 갱신
-            if (!suppressAttack && (attackPressed || (pressActive && mouse.leftButton.isPressed)) && !blockedPress && !PointerOverUi(mouse.position.ReadValue()) && Time.time >= nextAttack) // 짧은 클릭과 홀드 공격 검사
+            bool inputBlocked = CombatInputBlocked(); // 화면의 전투 입력 점유 여부
+            if (inputBlocked && (attackPressed || mouse.leftButton.isPressed)) // 화면 입력 중 클릭 유지 여부
+            {
+                blockedPress = true; // 클릭 해제 전까지 공격 차단 유지
+            }
+            if (!suppressAttack && !inputBlocked && (attackPressed || (pressActive && mouse.leftButton.isPressed)) && !blockedPress && !PointerOverUi(mouse.position.ReadValue()) && Time.time >= nextAttack) // 짧은 클릭과 홀드 공격 검사
             {
                 Attack(); // 선택한 무기의 일반 공격
                 float interval = equippedWeapon == WeaponType.Staff ? runtimeSettings.staffInterval : equippedWeapon == WeaponType.Bow ? runtimeSettings.bowInterval : runtimeSettings.swordInterval; // 장착 무기의 공격 간격
@@ -464,7 +473,7 @@ namespace Phi // 프로토타입 영역
         private void ReadSkillInput() // 슬롯 순서의 키보드 시전
         {
             Keyboard keyboard = Keyboard.current; // 현재 키보드
-            if (keyboard == null || TextInputFocused()) // 키보드 부재 또는 텍스트 입력 여부
+            if (keyboard == null || CombatInputBlocked()) // 키보드 부재 또는 화면 입력 여부
             {
                 return; // 스킬 키 입력 생략
             }
@@ -480,6 +489,11 @@ namespace Phi // 프로토타입 영역
             {
                 UseSkill(2, EquippedSkills.R); // R 슬롯 시전
             }
+        }
+
+        private static bool CombatInputBlocked() // UI의 전투 입력 차단 여부
+        {
+            return CombatInputFocus.IsCaptured || TextInputFocused(); // 화면 점유 또는 실제 텍스트 편집
         }
 
         private static bool TextInputFocused() // 텍스트 입력에 사용 중인 UI 확인
@@ -604,7 +618,7 @@ namespace Phi // 프로토타입 영역
             }
             attackPressed = true; // 짧은 클릭 보존
             pressActive = true; // 클릭 유지 상태 기록
-            blockedPress = PointerOverUi(mouse.position.ReadValue()); // 입력 이벤트 시점의 UI 시작 위치 기록
+            blockedPress = CombatInputBlocked() || PointerOverUi(mouse.position.ReadValue()); // 화면 점유와 UI 클릭 차단
         }
 
         private void OnDestroy() // 입력 이벤트 정리
@@ -687,7 +701,7 @@ namespace Phi // 프로토타입 영역
             }
             SetInteractionSelection(selected); // 선택 표시와 월드 마커 갱신
             Keyboard keyboard = Keyboard.current; // 현재 키보드
-            if (allowInput && !TextInputFocused() && keyboard != null && keyboard.fKey.wasPressedThisFrame && selected != null) // 짧은 F 입력과 유효 대상 확인
+            if (allowInput && !CombatInputBlocked() && keyboard != null && keyboard.fKey.wasPressedThisFrame && selected != null) // 짧은 F 입력과 유효 대상 확인
             {
                 bool loot = selected.Kind == InteractionKind.Loot; // 시험 전리품 수집 여부
                 if (selected.TryInteract() && loot) // 유효한 전리품의 단일 수집
@@ -981,7 +995,7 @@ namespace Phi // 프로토타입 영역
             gameOverPanel.SetActive(false); // 시작 시 사망 화면 숨김
         }
 
-        private void CreateInteractionInterface(Transform canvas) // 전투 입력을 막지 않는 상호작용 안내
+        private void CreateInteractionInterface(Transform canvas) // 상호작용 안내와 클릭 차단 영역
         {
             GameObject panel = new GameObject("Interaction Panel", typeof(RectTransform)); // 상호작용 안내 영역
             panel.transform.SetParent(canvas, false); // 화면 캔버스 연결
@@ -991,7 +1005,8 @@ namespace Phi // 프로토타입 영역
             rect.pivot = new Vector2(1f, 1f); // 안내 영역 오른쪽 위 기준
             rect.anchoredPosition = new Vector2(-10f, -10f); // 화면 가장자리 여백
             rect.sizeDelta = new Vector2(500f, 72f); // 대상과 수집 안내 크기
-            interactionStatusText = Label("Interaction Status", panel.transform, "", 20); // 포인터를 차단하지 않는 안내 글자
+            interactionStatusText = Label("Interaction Status", panel.transform, "", 20); // 상호작용 안내 글자
+            interactionStatusText.raycastTarget = true; // 안내 영역의 전투 클릭 차단
             UpdateInteractionStatus(); // 초기 대상과 수집 횟수 표시
         }
 
@@ -1013,9 +1028,9 @@ namespace Phi // 프로토타입 영역
             return slot + ": " + definition.EnglishName; // 임시 영문 스킬 표시
         }
 
-        private void CreateSkillInterface(Transform canvas) // 비차단 스킬 상태 표시 생성
+        private void CreateSkillInterface(Transform canvas) // 스킬 상태와 클릭 차단 영역 생성
         {
-            GameObject panel = new GameObject("Skill Panel", typeof(RectTransform)); // 입력을 막지 않는 표시 영역
+            GameObject panel = new GameObject("Skill Panel", typeof(RectTransform)); // 스킬 상태 표시 영역
             panel.transform.SetParent(canvas, false); // 화면 캔버스 연결
             RectTransform rect = panel.GetComponent<RectTransform>(); // 표시 영역 위치
             rect.anchorMin = new Vector2(0.5f, 0f); // 화면 아래쪽 기준점
@@ -1023,7 +1038,8 @@ namespace Phi // 프로토타입 영역
             rect.pivot = new Vector2(0.5f, 0.5f); // 표시 영역 중심
             rect.anchoredPosition = new Vector2(0f, 132f); // 무기 버튼 위쪽 위치
             rect.sizeDelta = new Vector2(1400f, 64f); // 슬롯과 안내 크기
-            skillStatusText = Label("Skill Status", panel.transform, "", 20); // 비차단 스킬 상태 글자
+            skillStatusText = Label("Skill Status", panel.transform, "", 20); // 스킬 상태 글자
+            skillStatusText.raycastTarget = true; // 상태 표시 영역의 전투 클릭 차단
             UpdateSkillStatus(); // 시작 마나와 슬롯 표시
         }
 
