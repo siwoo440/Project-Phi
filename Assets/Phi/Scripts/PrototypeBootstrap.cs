@@ -14,6 +14,7 @@ namespace Phi // 프로토타입 영역
         [SerializeField] private SpriteRenderer mapFloor; // 씬에 배치한 맵 바닥
         private MapRegion mapRegion; // 씬 맵의 실제 경계
         private PrototypeSettings runtimeSettings; // 현재 전투 설정
+        private WeaponType equippedWeapon; // 현재 전투에서 장착한 무기
         private Fighter player; // 플레이어 전투 상태
         private readonly List<Slime> slimes = new List<Slime>(); // 슬라임 목록
         private readonly List<BowArrow> arrows = new List<BowArrow>(); // 발사된 화살 상태 목록
@@ -23,6 +24,8 @@ namespace Phi // 프로토타입 영역
         private Camera gameCamera; // 추적 카메라
         private GameObject aimMarker; // 조준 표시
         private Text healthText; // 체력 글자
+        private readonly Dictionary<WeaponType, Text> equipmentLabels = new Dictionary<WeaponType, Text>(); // 무기별 선택 표시
+        private readonly List<Button> equipmentButtons = new List<Button>(); // 무기 장착 버튼 목록
         private GameObject gameOverPanel; // 사망 화면
         private float nextAttack; // 다음 공격 가능 시각
         private bool blockedPress; // UI에서 시작한 클릭 차단
@@ -44,6 +47,7 @@ namespace Phi // 프로토타입 영역
         private void Start() // 전투 시작
         {
             runtimeSettings = settings != null ? settings : ScriptableObject.CreateInstance<PrototypeSettings>(); // 설정이 없을 때 기본값 사용
+            equippedWeapon = runtimeSettings.startingWeapon; // 설정값에서 전투 시작 무기 복사
             if (!InitializeMap()) // 씬 맵과 필수 경계 확인
             {
                 enabled = false; // 맵 오류 시 전투 갱신 중지
@@ -111,6 +115,7 @@ namespace Phi // 프로토타입 영역
         {
             if (player == null || player.Dead) // 플레이어 사망 여부
             {
+                SetEquipmentButtonsInteractable(false); // 사망 중 무기 전환 차단 표시
                 ClearArrows(); // 전투 종료 시 기존 화살 제거
                 return; // 사망 중 전투 입력 중지
             }
@@ -233,7 +238,7 @@ namespace Phi // 프로토타입 영역
             if ((attackPressed || (pressActive && mouse.leftButton.isPressed)) && !blockedPress && !PointerOverUi(mouse.position.ReadValue()) && Time.time >= nextAttack) // 짧은 클릭과 홀드 공격 검사
             {
                 Attack(); // 선택한 무기의 일반 공격
-                float interval = runtimeSettings.startingWeapon == WeaponType.Staff ? runtimeSettings.staffInterval : runtimeSettings.startingWeapon == WeaponType.Bow ? runtimeSettings.bowInterval : runtimeSettings.swordInterval; // 선택 무기의 공격 간격
+                float interval = equippedWeapon == WeaponType.Staff ? runtimeSettings.staffInterval : equippedWeapon == WeaponType.Bow ? runtimeSettings.bowInterval : runtimeSettings.swordInterval; // 장착 무기의 공격 간격
                 nextAttack = Time.time + Mathf.Max(0.01f, interval); // 다음 공격 가능 시각
             }
             attackPressed = false; // 이번 프레임의 클릭 시작 처리 완료
@@ -326,12 +331,12 @@ namespace Phi // 프로토타입 영역
             {
                 return; // 장애물 검사가 불가능한 공격 차단
             }
-            if (runtimeSettings.startingWeapon == WeaponType.Bow) // 활 장착 여부
+            if (equippedWeapon == WeaponType.Bow) // 활 장착 여부
             {
                 LaunchArrow(); // 고정 조준 방향의 화살 발사
                 return; // 검 공격 생략
             }
-            if (runtimeSettings.startingWeapon == WeaponType.Staff) // 지팡이 장착 여부
+            if (equippedWeapon == WeaponType.Staff) // 지팡이 장착 여부
             {
                 LaunchStaffBolt(); // 고정 조준 방향의 마법탄 발사
                 return; // 검 공격 생략
@@ -492,6 +497,7 @@ namespace Phi // 프로토타입 영역
                 slime.Tick(player, runtimeSettings, mapRegion); // 이동과 공격 처리
                 if (player.Dead) // 플레이어 사망 확인
                 {
+                    SetEquipmentButtonsInteractable(false); // 사망 중 무기 버튼 비활성화
                     gameOverPanel.SetActive(true); // 재시작 화면 표시
                     break; // 추가 공격 중지
                 }
@@ -518,6 +524,7 @@ namespace Phi // 프로토타입 영역
             GameObject healthPanel = Panel("Health Panel", canvasObject.transform, new Vector2(10f, -10f), new Vector2(250f, 70f), new Vector2(0f, 1f)); // 체력 배경과 클릭 차단 영역
             healthText = Label("Health", healthPanel.transform, "HP", 28); // 체력 글자
             UpdateHealth(); // 초기 체력 표시
+            CreateEquipmentInterface(canvasObject.transform); // 전투 무기 선택 버튼 준비
             gameOverPanel = Panel("Game Over", canvasObject.transform, Vector2.zero, new Vector2(440f, 220f), new Vector2(0.5f, 0.5f)); // 사망 배경
             GameObject title = new GameObject("Title", typeof(RectTransform)); // 사망 글자 오브젝트
             title.transform.SetParent(gameOverPanel.transform, false); // 사망 화면에 연결
@@ -538,6 +545,63 @@ namespace Phi // 프로토타입 영역
             button.onClick.AddListener(Restart); // 재시작 연결
             Label("Button Label", buttonObject.transform, "RESTART", 26); // 버튼 글자
             gameOverPanel.SetActive(false); // 시작 시 사망 화면 숨김
+        }
+
+        private void CreateEquipmentInterface(Transform canvas) // 전투 중 시험 무기 선택 UI 생성
+        {
+            GameObject panel = new GameObject("Weapon Panel", typeof(RectTransform)); // 입력을 막지 않는 버튼 배치 영역
+            panel.transform.SetParent(canvas, false); // 화면 캔버스에 연결
+            RectTransform rect = panel.GetComponent<RectTransform>(); // 버튼 영역 위치
+            rect.anchorMin = new Vector2(0.5f, 0f); // 화면 아래쪽 기준점
+            rect.anchorMax = new Vector2(0.5f, 0f); // 화면 아래쪽 기준점 고정
+            rect.pivot = new Vector2(0.5f, 0.5f); // 버튼 영역 중심 기준
+            rect.anchoredPosition = new Vector2(0f, 48f); // 화면 아래 여백
+            rect.sizeDelta = new Vector2(480f, 72f); // 버튼 영역 크기
+            CreateEquipmentButton(panel.transform, "Equip Sword", WeaponType.Sword, -156f); // 검 장착 버튼
+            CreateEquipmentButton(panel.transform, "Equip Bow", WeaponType.Bow, 0f); // 활 장착 버튼
+            CreateEquipmentButton(panel.transform, "Equip Staff", WeaponType.Staff, 156f); // 지팡이 장착 버튼
+            RefreshEquipmentLabels(); // 시작 무기의 선택 표시
+        }
+
+        private void CreateEquipmentButton(Transform parent, string name, WeaponType weapon, float x) // 무기 선택 버튼 생성
+        {
+            GameObject buttonObject = Panel(name, parent, new Vector2(x, 0f), new Vector2(144f, 54f), new Vector2(0.5f, 0.5f)); // 개별 무기 버튼 배경
+            buttonObject.GetComponent<Image>().color = new Color(0.25f, 0.35f, 0.42f, 1f); // 무기 버튼 색상
+            Button button = buttonObject.AddComponent<Button>(); // 무기 선택 버튼 동작
+            button.onClick.AddListener(() => EquipWeapon(weapon)); // 해당 무기 장착 연결
+            Text label = Label("Weapon Label", buttonObject.transform, "", 20); // 버튼의 무기 이름과 선택 표시
+            equipmentLabels.Add(weapon, label); // 무기별 표시 참조 보관
+            equipmentButtons.Add(button); // 사망 시 비활성화할 버튼 보관
+        }
+
+        private void EquipWeapon(WeaponType weapon) // 전투 중 무기 장착 상태 변경
+        {
+            if (player == null || player.Dead) // 전투 가능 여부 확인
+            {
+                return; // 사망 중 무기 전환 방지
+            }
+            equippedWeapon = weapon; // 선택한 무기를 실행 상태에 저장
+            RefreshEquipmentLabels(); // 현재 선택 표시 갱신
+        }
+
+        private void RefreshEquipmentLabels() // 현재 장착 무기 표시 갱신
+        {
+            foreach (KeyValuePair<WeaponType, Text> entry in equipmentLabels) // 무기별 버튼 표시 순회
+            {
+                string name = entry.Key == WeaponType.Bow ? "BOW" : entry.Key == WeaponType.Staff ? "STAFF" : "SWORD"; // 무기별 표시 이름
+                entry.Value.text = name + (entry.Key == equippedWeapon ? " *" : ""); // 현재 무기에 선택 표식 추가
+            }
+        }
+
+        private void SetEquipmentButtonsInteractable(bool value) // 무기 선택 가능 상태 변경
+        {
+            foreach (Button button in equipmentButtons) // 무기 버튼 순회
+            {
+                if (button != null) // 버튼 존재 여부
+                {
+                    button.interactable = value; // 무기 선택 가능 상태 적용
+                }
+            }
         }
 
         private static GameObject Panel(string name, Transform parent, Vector2 position, Vector2 size, Vector2 anchor) // UI 배경 생성

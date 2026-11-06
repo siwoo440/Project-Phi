@@ -15,6 +15,7 @@ public class MapBoundsTests // 시험 공간 경계 검증
     private Keyboard keyboard; // 가상 키보드
     private Mouse mouse; // 가상 마우스
     private SceneMapTestFixture sceneMap; // 독립 씬 맵 시험 설정
+    private SwordSceneSettingsFixture swordSettings; // 검 시작 설정 격리
     private PrototypeSettings settings; // 시험용 전투 설정
     private bool previousRunInBackground; // 기존 백그라운드 실행 설정
     private InputSettings.BackgroundBehavior previousBackgroundBehavior; // 기존 포커스 처리 설정
@@ -32,12 +33,12 @@ public class MapBoundsTests // 시험 공간 경계 검증
         keyboard = InputSystem.AddDevice<Keyboard>(); // 가상 키보드 생성
         mouse = InputSystem.AddDevice<Mouse>(); // 가상 마우스 생성
         sceneMap = new SceneMapTestFixture(); // 로드된 씬의 시험 맵 설정
+        swordSettings = new SwordSceneSettingsFixture(3); // 검과 세 적의 시험 시작 설정
         SceneManager.LoadScene("CombatPrototype"); // 실제 시험 씬 열기
         yield return null; // 전투 생성 대기
         yield return null; // 전투 초기화 대기
-        settings = ScriptableObject.CreateInstance<PrototypeSettings>(); // 독립 전투 설정 생성
-        settings.slimeSpeed = 0f; // 이동 시험 중 적 정지
-        typeof(PrototypeBootstrap).GetField("runtimeSettings", BindingFlags.Instance | BindingFlags.NonPublic).SetValue(Object.FindFirstObjectByType<PrototypeBootstrap>(), settings); // 전투 설정 연결
+        settings = swordSettings.Current; // 시작 전에 연결된 검 시험 설정
+        Assert.That(settings, Is.Not.Null, "씬에 연결된 전투 설정을 복제해야 합니다."); // 시험 설정 연결 확인
     }
 
     [UnityTearDown] // 각 시험의 정리
@@ -51,10 +52,7 @@ public class MapBoundsTests // 시험 공간 경계 검증
         {
             InputSystem.RemoveDevice(mouse); // 가상 마우스 제거
         }
-        if (settings != null) // 시험용 설정 존재 여부
-        {
-            Object.Destroy(settings); // 시험용 설정 제거
-        }
+        swordSettings.Dispose(); // 모든 검 시험 설정 복제본 정리
         InputSystem.settings.editorInputBehaviorInPlayMode = previousEditorInputBehavior; // 입력 경로 복원
         InputSystem.settings.backgroundBehavior = previousBackgroundBehavior; // 포커스 처리 복원
         Application.runInBackground = previousRunInBackground; // 실행 설정 복원
@@ -359,19 +357,3 @@ public class MapBoundsTests // 시험 공간 경계 검증
         yield return null; // 시험 프레임 정리
     }
 }
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-

@@ -5,6 +5,7 @@ using NUnit.Framework; // 테스트 도구
 using Phi; // 전투 구성 요소
 using UnityEngine; // 유니티 자료형
 using UnityEngine.EventSystems; // UI 포인터 검사
+using UnityEngine.Events; // 씬 로드 콜백 자료형
 using UnityEngine.InputSystem; // 가상 입력 장치
 using UnityEngine.InputSystem.LowLevel; // 가상 마우스 상태
 using UnityEngine.SceneManagement; // 전투 씬 전환
@@ -15,6 +16,7 @@ public class CombatFlowTests // 전투 흐름 검증
 {
     private Mouse mouse; // 시험용 마우스
     private SceneMapTestFixture sceneMap; // 독립 씬 맵 시험 설정
+    private SwordSceneSettingsFixture swordSettings; // 검 시작 설정 격리
     private PrototypeSettings settings; // 시험용 임시 설정
     private bool previousRunInBackground; // 기존 백그라운드 실행 설정
     private InputSettings.BackgroundBehavior previousBackgroundBehavior; // 기존 포커스 처리 설정
@@ -31,12 +33,12 @@ public class CombatFlowTests // 전투 흐름 검증
         InputSystem.settings.editorInputBehaviorInPlayMode = InputSettings.EditorInputBehaviorInPlayMode.AllDeviceInputAlwaysGoesToGameView; // 가상 입력의 게임 경로 지정
         mouse = InputSystem.AddDevice<Mouse>(); // 독립 가상 마우스
         sceneMap = new SceneMapTestFixture(); // 로드된 씬의 시험 맵 설정
+        swordSettings = new SwordSceneSettingsFixture(3); // 검과 세 적의 시험 시작 설정
         SceneManager.LoadScene("CombatPrototype"); // 실제 전투 씬 열기
         yield return null; // 전투 객체 생성 대기
         yield return null; // UI 배치 대기
-        settings = ScriptableObject.CreateInstance<PrototypeSettings>(); // 독립 설정 생성
-        settings.slimeSpeed = 0f; // 타격 시험 중 대상 위치 유지
-        typeof(PrototypeBootstrap).GetField("runtimeSettings", BindingFlags.Instance | BindingFlags.NonPublic).SetValue(Object.FindFirstObjectByType<PrototypeBootstrap>(), settings); // 실제 전투에 임시 설정 연결
+        settings = swordSettings.Current; // 시작 전에 연결된 검 시험 설정
+        Assert.That(settings, Is.Not.Null, "씬에 연결된 전투 설정을 복제해야 합니다."); // 시험 설정 연결 확인
     }
 
     [UnityTearDown] // 각 시험 후 정리
@@ -46,10 +48,7 @@ public class CombatFlowTests // 전투 흐름 검증
         {
             InputSystem.RemoveDevice(mouse); // 시험 장치 제거
         }
-        if (settings != null) // 임시 설정 존재 여부
-        {
-            Object.Destroy(settings); // 임시 설정 제거
-        }
+        swordSettings.Dispose(); // 모든 검 시험 설정 복제본 정리
         InputSystem.settings.editorInputBehaviorInPlayMode = previousEditorInputBehavior; // 에디터 입력 경로 복원
         InputSystem.settings.backgroundBehavior = previousBackgroundBehavior; // 포커스 처리 설정 복원
         Application.runInBackground = previousRunInBackground; // 백그라운드 실행 설정 복원
@@ -57,6 +56,62 @@ public class CombatFlowTests // 전투 흐름 검증
         yield return null; // 프레임 정리 대기
     }
 
+    [UnityTest] // 저장된 시작 무기 격리 사례
+    public IEnumerator SwordFixtureOverridesBowAndStaffBeforeCombatStart() // 다른 시작 무기에서도 검 시험 유지
+    {
+        swordSettings.Dispose(); // 기존 검 설정 이벤트 해제
+        List<PrototypeSettings> sources = new List<PrototypeSettings>(); // 사용자 설정을 모사할 임시 복제본
+        WeaponType requested = WeaponType.Bow; // 시험할 저장 시작 무기
+        PrototypeSettings source = null; // 새 씬의 임시 원본 설정
+        UnityAction<Scene, LoadSceneMode> onLoaded = (scene, mode) => // 검 시험 설정보다 먼저 실행되는 씬 설정
+        {
+            foreach (GameObject root in scene.GetRootGameObjects()) // 새 씬 루트 검색
+            {
+                PrototypeBootstrap bootstrap = root.GetComponentInChildren<PrototypeBootstrap>(true); // 새 씬의 전투 구성 요소
+                if (bootstrap != null) // 전투 구성 요소 확인
+                {
+                    FieldInfo field = typeof(PrototypeBootstrap).GetField("settings", BindingFlags.Instance | BindingFlags.NonPublic); // 저장된 설정 필드
+                    PrototypeSettings original = (PrototypeSettings)field.GetValue(bootstrap); // 씬에 연결된 원본 설정
+                    source = Object.Instantiate(original); // 원본을 변경하지 않는 임시 복제
+                    source.startingWeapon = requested; // 다른 시작 무기 설정
+                    sources.Add(source); // 시험 후 정리할 임시 설정 등록
+                    field.SetValue(bootstrap, source); // 새 씬에 임시 원본 설정 연결
+                    break; // 전투 구성 요소 검색 종료
+                }
+            }
+        };
+        SceneManager.sceneLoaded += onLoaded; // 임시 원본 설정 이벤트 등록
+        swordSettings = new SwordSceneSettingsFixture(3); // 원본 설정 이후 적용되는 검 시험 설정
+        try // 이벤트와 임시 설정 정리 보장
+        {
+            WeaponType[] weapons = { WeaponType.Bow, WeaponType.Staff }; // 시험할 저장 시작 무기 목록
+            foreach (WeaponType weapon in weapons) // 활과 지팡이 시작 설정 검사
+            {
+                requested = weapon; // 다음 씬의 저장 시작 무기
+                source = null; // 이전 씬 임시 설정 참조 초기화
+                SceneManager.LoadScene("CombatPrototype"); // 새로운 시험 전투 로드
+                yield return null; // 전투 시작 대기
+                yield return null; // 장착 상태 초기화 대기
+                Assert.That(source, Is.Not.Null); // 임시 원본 설정 연결 확인
+                Assert.That(source.startingWeapon, Is.EqualTo(weapon)); // 원본 시작 무기 보존
+                Assert.That(swordSettings.Current, Is.Not.SameAs(source)); // 시험용 복제 설정 분리
+                PrototypeBootstrap bootstrap = Object.FindFirstObjectByType<PrototypeBootstrap>(); // 새 씬의 전투 구성 요소
+                WeaponType equipped = (WeaponType)typeof(PrototypeBootstrap).GetField("equippedWeapon", BindingFlags.Instance | BindingFlags.NonPublic).GetValue(bootstrap); // 실제 초기 장착 무기
+                Assert.That(equipped, Is.EqualTo(WeaponType.Sword)); // Start 전에 적용된 검 장착
+            }
+        }
+        finally // 시험 임시 상태 정리
+        {
+            SceneManager.sceneLoaded -= onLoaded; // 임시 원본 설정 이벤트 해제
+            foreach (PrototypeSettings item in sources) // 임시 원본 설정 순회
+            {
+                if (item != null) // 임시 원본 설정 존재 여부
+                {
+                    Object.Destroy(item); // 임시 원본 설정 제거
+                }
+            }
+        }
+    }
     [UnityTest] // 검 타격과 재시작 사례
     public IEnumerator SwordKillsSlimeAndRestartResetsCombat() // 실제 전투 흐름 검증
     {
@@ -147,4 +202,3 @@ public class CombatFlowTests // 전투 흐름 검증
         Assert.That(GameObject.Find("Slime 1").GetComponent<Fighter>().Health, Is.EqualTo(50)); // 슬라임 체력 초기화
     }
 }
-
