@@ -2,6 +2,12 @@ using UnityEngine; // 유니티 자료형
 
 namespace Phi // 전투 설정 영역
 {
+    public enum WeaponType // 첫 전투 무기 선택
+    {
+        Sword, // 기본 검
+        Bow // 기본 활
+    }
+
     [CreateAssetMenu(menuName = "Phi/Prototype Settings")] // 설정 에셋 생성 메뉴
     public sealed class PrototypeSettings : ScriptableObject // 전투 조정 데이터
     {
@@ -15,11 +21,16 @@ namespace Phi // 전투 설정 영역
         public const float PlayerRadius = 0.35f; // 플레이어 도형 반폭
         public const float SlimeRadius = 0.425f; // 슬라임 예고 중 최대 도형 반폭
         public const float MinimumMapHalfSize = SlimeRadius + BoundaryThickness; // 도형과 테두리를 담는 최소 반경
+        public WeaponType startingWeapon = WeaponType.Sword; // 전투 시작 무기 선택
         public int swordAttack = 12; // 검 공격력
         public float swordInterval = 0.55f; // 검 공격 간격
         public float swordRange = 1.7f; // 검 공격 사거리
         public float swordAngle = 90f; // 검 공격 각도
         public int swordTargets = 3; // 검 최대 대상 수
+        public int bowAttack = 10; // 활 공격력
+        public float bowInterval = 0.70f; // 활 공격 간격
+        public float bowRange = 7f; // 화살 최대 이동 거리
+        public float bowProjectileSpeed = 14f; // 화살 이동속도
         public int slimeHealth = 50; // 슬라임 최대 체력
         public int slimeAttack = 8; // 슬라임 공격력
         public int slimeDefense = 2; // 슬라임 방어력

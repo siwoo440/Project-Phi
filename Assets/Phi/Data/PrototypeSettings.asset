@@ -18,11 +18,16 @@ MonoBehaviour:
   playerSpeed: 4
   mapHalfWidth: 10
   mapHalfHeight: 6
+  startingWeapon: 0
   swordAttack: 12
   swordInterval: 0.55
   swordRange: 1.7
   swordAngle: 90
   swordTargets: 3
+  bowAttack: 10
+  bowInterval: 0.7
+  bowRange: 7
+  bowProjectileSpeed: 14
   slimeHealth: 50
   slimeAttack: 8
   slimeDefense: 2

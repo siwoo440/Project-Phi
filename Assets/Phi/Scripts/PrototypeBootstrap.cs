@@ -16,6 +16,9 @@ namespace Phi // 프로토타입 영역
         private PrototypeSettings runtimeSettings; // 현재 전투 설정
         private Fighter player; // 플레이어 전투 상태
         private readonly List<Slime> slimes = new List<Slime>(); // 슬라임 목록
+        private readonly List<BowArrow> arrows = new List<BowArrow>(); // 발사된 화살 상태 목록
+        private readonly List<RaycastHit2D> arrowHits = new List<RaycastHit2D>(); // 화살 경로 충돌 결과
+        private readonly List<Collider2D> arrowOverlaps = new List<Collider2D>(); // 화살 출발점 충돌 결과
         private Camera gameCamera; // 추적 카메라
         private GameObject aimMarker; // 조준 표시
         private Text healthText; // 체력 글자
@@ -25,10 +28,12 @@ namespace Phi // 프로토타입 영역
         private bool attackPressed; // 이번 입력 처리의 클릭 시작
         private bool pressActive; // 유효한 클릭 유지
         private InputAction attackAction; // 클릭 시작 이벤트
+        private int obstacleLayer; // 장애물 충돌 계층 번호
         private int playerLayer; // 플레이어 충돌 계층 번호
         private int enemyLayer; // 적 충돌 계층 번호
         private bool combatLayersReady; // 전투 계층 준비 여부
         private ContactFilter2D swordOcclusionFilter; // 검 장애물 충돌 필터
+        private ContactFilter2D arrowCollisionFilter; // 화살 적과 장애물 충돌 필터
         private readonly RaycastHit2D[] swordOcclusionHits = new RaycastHit2D[1]; // 검 장애물 판정 결과
         private Sprite square; // 임시 사각형 그림
         private Vector2 aim = Vector2.right; // 마지막 조준 방향
@@ -82,7 +87,7 @@ namespace Phi // 프로토타입 영역
         }
         private void InitializeCombatLayers() // 전투 계층과 검 장애물 필터 설정
         {
-            int obstacleLayer = LayerMask.NameToLayer("PhiObstacle"); // 벽 충돌 계층 번호
+            obstacleLayer = LayerMask.NameToLayer("PhiObstacle"); // 벽 충돌 계층 번호
             playerLayer = LayerMask.NameToLayer("PhiPlayer"); // 플레이어 충돌 계층 번호
             enemyLayer = LayerMask.NameToLayer("PhiEnemy"); // 적 충돌 계층 번호
             combatLayersReady = obstacleLayer >= 0 && playerLayer >= 0 && enemyLayer >= 0; // 필수 계층 존재 여부
@@ -94,18 +99,27 @@ namespace Phi // 프로토타입 영역
             swordOcclusionFilter = new ContactFilter2D(); // 검 장애물 검사 필터
             swordOcclusionFilter.SetLayerMask(1 << obstacleLayer); // 장애물 계층만 선택
             swordOcclusionFilter.useTriggers = false; // 트리거 충돌체 제외
+            arrowCollisionFilter = new ContactFilter2D(); // 화살 충돌 검사 필터
+            arrowCollisionFilter.SetLayerMask((1 << obstacleLayer) | (1 << enemyLayer)); // 벽과 적의 충돌 계층 선택
+            arrowCollisionFilter.useTriggers = false; // 화살 트리거 충돌 제외
         }
 
         private void Update() // 매 프레임 입력과 전투 처리
         {
             if (player == null || player.Dead) // 플레이어 사망 여부
             {
+                ClearArrows(); // 전투 종료 시 기존 화살 제거
                 return; // 사망 중 전투 입력 중지
             }
             ReadMovement(); // 이동 입력
             FollowCamera(); // 이동 직후 카메라 위치 반영
             ReadAimAndAttack(); // 조준과 공격 입력
+            UpdateArrows(); // 발사된 화살 이동과 충돌
             UpdateSlimes(); // 슬라임 행동
+            if (player.Dead) // 이번 프레임의 플레이어 사망 여부
+            {
+                ClearArrows(); // 사망 후 화살 피해 방지
+            }
             UpdateHealth(); // 체력 표시
         }
 
@@ -178,6 +192,8 @@ namespace Phi // 프로토타입 영역
                 {
                     slimeObject.layer = enemyLayer; // 적 충돌 계층 지정
                 }
+                BoxCollider2D slimeCollider = slimeObject.AddComponent<BoxCollider2D>(); // 화살 적중용 슬라임 충돌체
+                slimeCollider.size = Vector2.one; // 슬라임 도형과 같은 충돌 크기
                 Fighter fighter = slimeObject.AddComponent<Fighter>(); // 슬라임 체력 상태
                 fighter.Initialize(runtimeSettings.slimeHealth, runtimeSettings.slimeDefense); // 슬라임 능력치 설정
                 slimes.Add(new Slime(fighter)); // 슬라임 행동 상태 추가
@@ -212,8 +228,9 @@ namespace Phi // 프로토타입 영역
             UpdateAimMarker(); // 경계 안의 조준 표시 갱신
             if ((attackPressed || (pressActive && mouse.leftButton.isPressed)) && !blockedPress && !PointerOverUi(mouse.position.ReadValue()) && Time.time >= nextAttack) // 짧은 클릭과 홀드 공격 검사
             {
-                Attack(); // 검 공격
-                nextAttack = Time.time + Mathf.Max(0.01f, runtimeSettings.swordInterval); // 다음 공격 가능 시각
+                Attack(); // 선택한 무기의 일반 공격
+                float interval = runtimeSettings.startingWeapon == WeaponType.Bow ? runtimeSettings.bowInterval : runtimeSettings.swordInterval; // 선택 무기의 공격 간격
+                nextAttack = Time.time + Mathf.Max(0.01f, interval); // 다음 공격 가능 시각
             }
             attackPressed = false; // 이번 프레임의 클릭 시작 처리 완료
             if (!mouse.leftButton.isPressed) // 클릭 종료 여부
@@ -270,6 +287,7 @@ namespace Phi // 프로토타입 영역
 
         private void OnDestroy() // 입력 이벤트 정리
         {
+            ClearArrows(); // 장면 종료 시 화살 상태 정리
             if (attackAction != null) // 입력 이벤트 생성 여부
             {
                 attackAction.performed -= OnAttackPressed; // 클릭 콜백 해제
@@ -290,11 +308,16 @@ namespace Phi // 프로토타입 영역
             return results.Count > 0; // UI 겹침 여부
         }
 
-        private void Attack() // 검 부채꼴 공격
+        private void Attack() // 선택한 무기의 일반 공격
         {
             if (!combatLayersReady) // 충돌 계층 누락 여부
             {
                 return; // 장애물 검사가 불가능한 공격 차단
+            }
+            if (runtimeSettings.startingWeapon == WeaponType.Bow) // 활 장착 여부
+            {
+                LaunchArrow(); // 고정 조준 방향의 화살 발사
+                return; // 검 공격 생략
             }
             Physics2D.SyncTransforms(); // 변경된 장애물 위치의 물리 반영
             List<Fighter> targets = new List<Fighter>(); // 이번 공격의 대상 목록
@@ -311,6 +334,39 @@ namespace Phi // 프로토타입 영역
                 Fighter target = targets[index]; // 현재 대상
                 target.TakeDamage(CombatMath.Damage(runtimeSettings.playerAttack + runtimeSettings.swordAttack, 1f, target.Defense, false)); // 공통 계산으로 피해 적용
             }
+        }
+
+        private void LaunchArrow() // 활의 일반 공격 발사
+        {
+            float size = BowArrow.VisualRadius * 2f; // 임시 화살 도형 크기
+            GameObject visual = Shape("Arrow", player.transform.position, new Vector2(size, size), new Color(1f, 0.85f, 0.2f), 4); // 플레이어 중심의 화살 표시
+            int attack = runtimeSettings.playerAttack + runtimeSettings.bowAttack; // 발사 순간의 최종 공격력
+            arrows.Add(new BowArrow(visual, aim, runtimeSettings.bowProjectileSpeed, runtimeSettings.bowRange, attack, obstacleLayer)); // 고정 방향 화살 상태 추가
+        }
+
+        private void UpdateArrows() // 발사된 화살 이동과 충돌 처리
+        {
+            if (arrows.Count == 0) // 화살 존재 여부
+            {
+                return; // 불필요한 충돌 검사 생략
+            }
+            Physics2D.SyncTransforms(); // 변경된 적과 장애물 위치의 물리 반영
+            for (int index = arrows.Count - 1; index >= 0; index--) // 제거에 안전한 역순 화살 검사
+            {
+                if (arrows[index].Tick(mapRegion, arrowCollisionFilter, arrowHits, arrowOverlaps, Time.deltaTime)) // 화살 이동과 종료 판정
+                {
+                    arrows.RemoveAt(index); // 종료된 화살 상태 제거
+                }
+            }
+        }
+
+        private void ClearArrows() // 전투 종료 시 화살 정리
+        {
+            foreach (BowArrow arrow in arrows) // 남은 화살 상태 검사
+            {
+                arrow.Clear(); // 화살 표시 제거
+            }
+            arrows.Clear(); // 화살 상태 목록 초기화
         }
 
         private void UpdateSlimes() // 슬라임 행동 갱신
