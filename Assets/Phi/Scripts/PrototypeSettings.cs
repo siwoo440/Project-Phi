@@ -9,8 +9,8 @@ namespace Phi // 전투 설정 영역
         public int playerAttack = 10; // 플레이어 기본 공격력
         public int playerDefense = 5; // 플레이어 기본 방어력
         public float playerSpeed = 4f; // 플레이어 이동속도
-        [Min(MinimumMapHalfSize)] public float mapHalfWidth = 10f; // 시험 공간 가로 반경
-        [Min(MinimumMapHalfSize)] public float mapHalfHeight = 6f; // 시험 공간 세로 반경
+        [HideInInspector] public float mapHalfWidth = 10f; // 이전 가로 맵 설정 보존
+        [HideInInspector] public float mapHalfHeight = 6f; // 이전 세로 맵 설정 보존
         public const float BoundaryThickness = 0.12f; // 공간 테두리 두께
         public const float PlayerRadius = 0.35f; // 플레이어 도형 반폭
         public const float SlimeRadius = 0.425f; // 슬라임 예고 중 최대 도형 반폭
@@ -31,18 +31,10 @@ namespace Phi // 전투 설정 영역
         public float slimeDashSpeed = 5f; // 임시 슬라임 돌진 속도
         public float slimeHitDistance = 0.65f; // 임시 슬라임 적중 거리
         public int slimeCount = 3; // 임시 시험 적 수
-
-        public Vector2 ClampPosition(Vector2 position, float radius) // 도형 전체의 시험 공간 내부 좌표 계산
-        {
-            float width = Mathf.Max(MinimumMapHalfSize, mapHalfWidth); // 최소 가로 반경
-            float height = Mathf.Max(MinimumMapHalfSize, mapHalfHeight); // 최소 세로 반경
-            float margin = Mathf.Max(0f, radius) + BoundaryThickness; // 도형과 테두리 여유
-            float limitX = Mathf.Max(0f, width - margin); // 가로 중심 이동 한계
-            float limitY = Mathf.Max(0f, height - margin); // 세로 중심 이동 한계
-            return new Vector2(Mathf.Clamp(position.x, -limitX, limitX), Mathf.Clamp(position.y, -limitY, limitY)); // 도형 전체의 사방 경계 제한
-        }
     }
 }
+
+
 
 
 

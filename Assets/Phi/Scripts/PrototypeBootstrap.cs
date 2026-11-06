@@ -11,6 +11,8 @@ namespace Phi // 프로토타입 영역
     public sealed class PrototypeBootstrap : MonoBehaviour // 시험 전투 생성
     {
         [SerializeField] private PrototypeSettings settings; // 조정 가능한 전투 설정
+        [SerializeField] private SpriteRenderer mapFloor; // 씬에 배치한 맵 바닥
+        private MapRegion mapRegion; // 씬 맵의 실제 경계
         private PrototypeSettings runtimeSettings; // 현재 전투 설정
         private Fighter player; // 플레이어 전투 상태
         private readonly List<Slime> slimes = new List<Slime>(); // 슬라임 목록
@@ -34,7 +36,12 @@ namespace Phi // 프로토타입 영역
         private void Start() // 전투 시작
         {
             runtimeSettings = settings != null ? settings : ScriptableObject.CreateInstance<PrototypeSettings>(); // 설정이 없을 때 기본값 사용
-            square = Sprite.Create(Texture2D.whiteTexture, new Rect(0f, 0f, 1f, 1f), new Vector2(0.5f, 0.5f), 1f); // 임시 도형 생성
+            if (!InitializeMap()) // 씬 맵과 필수 경계 확인
+            {
+                enabled = false; // 맵 오류 시 전투 갱신 중지
+                return; // 맵을 생성하지 않고 초기화 중단
+            }
+            square = Sprite.Create(Texture2D.whiteTexture, new Rect(0f, 0f, 1f, 1f), new Vector2(0.5f, 0.5f), 1f); // 임시 전투 도형 생성
             InitializeCombatLayers(); // 전투 계층과 벽 판정 준비
             CreateCamera(); // 카메라 준비
             CreateWorld(); // 플레이어와 적 준비
@@ -44,6 +51,35 @@ namespace Phi // 프로토타입 영역
             attackAction.Enable(); // 클릭 이벤트 활성화
         }
 
+        private bool InitializeMap() // 씬에 배치된 맵 검사
+        {
+            if (mapFloor == null || mapFloor.sprite == null) // 바닥 참조와 스프라이트 확인
+            {
+                Debug.LogError("씬에 연결된 Map Floor와 네 경계가 필요합니다."); // 필수 맵 누락 오류
+                return false; // 전투 초기화 중단
+            }
+            Transform topObject = mapFloor.transform.Find("Boundary Top"); // 위쪽 경계 오브젝트
+            Transform bottomObject = mapFloor.transform.Find("Boundary Bottom"); // 아래쪽 경계 오브젝트
+            Transform leftObject = mapFloor.transform.Find("Boundary Left"); // 왼쪽 경계 오브젝트
+            Transform rightObject = mapFloor.transform.Find("Boundary Right"); // 오른쪽 경계 오브젝트
+            SpriteRenderer top = topObject != null ? topObject.GetComponent<SpriteRenderer>() : null; // 위쪽 경계 렌더러
+            SpriteRenderer bottom = bottomObject != null ? bottomObject.GetComponent<SpriteRenderer>() : null; // 아래쪽 경계 렌더러
+            SpriteRenderer left = leftObject != null ? leftObject.GetComponent<SpriteRenderer>() : null; // 왼쪽 경계 렌더러
+            SpriteRenderer right = rightObject != null ? rightObject.GetComponent<SpriteRenderer>() : null; // 오른쪽 경계 렌더러
+            if (top == null || bottom == null || left == null || right == null || top.sprite == null || bottom.sprite == null || left.sprite == null || right.sprite == null) // 필수 경계와 스프라이트 확인
+            {
+                Debug.LogError("씬에 연결된 Map Floor와 네 경계가 필요합니다."); // 필수 경계 누락 오류
+                return false; // 전투 초기화 중단
+            }
+            mapRegion = new MapRegion(mapFloor, top, bottom, left, right); // 실제 씬 맵 참조 보관
+            if (!mapRegion.IsValid()) // 맵 크기와 축 정렬 확인
+            {
+                Debug.LogError("씬 맵의 경계 배치 또는 크기가 올바르지 않습니다."); // 잘못된 맵 구성 오류
+                mapRegion = null; // 잘못된 맵 참조 제거
+                return false; // 전투 초기화 중단
+            }
+            return true; // 필수 씬 맵 확인 완료
+        }
         private void InitializeCombatLayers() // 전투 계층과 검 장애물 필터 설정
         {
             int obstacleLayer = LayerMask.NameToLayer("PhiObstacle"); // 벽 충돌 계층 번호
@@ -82,15 +118,15 @@ namespace Phi // 프로토타입 영역
         {
             if (player != null && gameCamera != null) // 추적 대상 확인
             {
-                float width = Mathf.Max(PrototypeSettings.MinimumMapHalfSize, runtimeSettings.mapHalfWidth); // 시험 공간 가로 반경
-                float height = Mathf.Max(PrototypeSettings.MinimumMapHalfSize, runtimeSettings.mapHalfHeight); // 시험 공간 세로 반경
+                Bounds floorBounds = mapRegion.FloorBounds; // 씬 바닥의 월드 영역
                 float aspect = Mathf.Max(0.01f, gameCamera.aspect); // 유효한 화면 가로세로 비율
-                gameCamera.orthographicSize = Mathf.Min(6f, height, width / aspect); // 맵을 벗어나지 않는 세로 시야
+                gameCamera.orthographicSize = Mathf.Min(6f, floorBounds.extents.y, floorBounds.extents.x / aspect); // 바닥 안에 들어가는 세로 시야
                 float halfViewWidth = gameCamera.orthographicSize * aspect; // 카메라 가로 시야 반경
-                float limitX = Mathf.Max(0f, width - halfViewWidth); // 카메라 가로 중심 한계
-                float limitY = Mathf.Max(0f, height - gameCamera.orthographicSize); // 카메라 세로 중심 한계
+                float halfViewHeight = gameCamera.orthographicSize; // 카메라 세로 시야 반경
                 Vector3 position = player.transform.position; // 플레이어 위치
-                gameCamera.transform.position = new Vector3(Mathf.Clamp(position.x, -limitX, limitX), Mathf.Clamp(position.y, -limitY, limitY), -10f); // 맵 내부 카메라 추적
+                float cameraX = Mathf.Clamp(position.x, floorBounds.min.x + halfViewWidth, floorBounds.max.x - halfViewWidth); // 바닥 내부의 카메라 가로 위치
+                float cameraY = Mathf.Clamp(position.y, floorBounds.min.y + halfViewHeight, floorBounds.max.y - halfViewHeight); // 바닥 내부의 카메라 세로 위치
+                gameCamera.transform.position = new Vector3(cameraX, cameraY, -10f); // 씬 맵 내부 카메라 추적
             }
         }
 
@@ -124,8 +160,8 @@ namespace Phi // 프로토타입 영역
 
         private void CreateWorld() // 전투 대상 생성
         {
-            CreateBoundary(); // 시험 공간 경계 표시
-            GameObject playerObject = Shape("Player", Vector2.zero, new Vector2(0.7f, 0.7f), new Color(0.3f, 0.65f, 1f), 2); // 플레이어 임시 도형
+            Vector2 mapCenter = mapRegion.FloorBounds.center; // 씬 맵의 중심 위치
+            GameObject playerObject = Shape("Player", mapRegion.ClampPosition(mapCenter, PrototypeSettings.PlayerRadius), new Vector2(0.7f, 0.7f), new Color(0.3f, 0.65f, 1f), 2); // 맵 중심의 플레이어 임시 도형
             if (combatLayersReady) // 전투 계층 준비 여부
             {
                 playerObject.layer = playerLayer; // 플레이어 충돌 계층 지정
@@ -136,7 +172,7 @@ namespace Phi // 프로토타입 영역
             for (int index = 0; index < Mathf.Max(0, runtimeSettings.slimeCount); index++) // 시험 슬라임 생성 반복
             {
                 float angle = index * Mathf.PI * 2f / Mathf.Max(1, runtimeSettings.slimeCount); // 배치 각도
-                Vector2 position = runtimeSettings.ClampPosition(new Vector2(Mathf.Cos(angle), Mathf.Sin(angle)) * 4f, PrototypeSettings.SlimeRadius); // 경계 안의 배치 위치
+                Vector2 position = mapRegion.ClampPosition(mapCenter + new Vector2(Mathf.Cos(angle), Mathf.Sin(angle)) * 4f, PrototypeSettings.SlimeRadius); // 경계 안의 배치 위치
                 GameObject slimeObject = Shape("Slime " + (index + 1), position, new Vector2(0.65f, 0.65f), new Color(0.35f, 0.9f, 0.35f), 1); // 슬라임 도형
                 if (combatLayersReady) // 전투 계층 준비 여부
                 {
@@ -148,18 +184,6 @@ namespace Phi // 프로토타입 영역
             }
         }
 
-        private void CreateBoundary() // 시험 공간 테두리 생성
-        {
-            float width = Mathf.Max(PrototypeSettings.MinimumMapHalfSize, runtimeSettings.mapHalfWidth); // 가로 경계 반경
-            float height = Mathf.Max(PrototypeSettings.MinimumMapHalfSize, runtimeSettings.mapHalfHeight); // 세로 경계 반경
-            float thickness = PrototypeSettings.BoundaryThickness; // 임시 테두리 두께
-            Color color = new Color(0.65f, 0.74f, 0.68f); // 임시 테두리 색상
-            Shape("Boundary Top", new Vector2(0f, height - thickness * 0.5f), new Vector2(width * 2f, thickness), color, 0); // 위쪽 경계 표시
-            Shape("Boundary Bottom", new Vector2(0f, -height + thickness * 0.5f), new Vector2(width * 2f, thickness), color, 0); // 아래쪽 경계 표시
-            Shape("Boundary Left", new Vector2(-width + thickness * 0.5f, 0f), new Vector2(thickness, height * 2f), color, 0); // 왼쪽 경계 표시
-            Shape("Boundary Right", new Vector2(width - thickness * 0.5f, 0f), new Vector2(thickness, height * 2f), color, 0); // 오른쪽 경계 표시
-        }
-
         private void ReadMovement() // 키보드 이동
         {
             Keyboard keyboard = Keyboard.current; // 현재 키보드
@@ -169,7 +193,7 @@ namespace Phi // 프로토타입 영역
             }
             Vector2 input = new Vector2((keyboard.dKey.isPressed ? 1f : 0f) - (keyboard.aKey.isPressed ? 1f : 0f), (keyboard.wKey.isPressed ? 1f : 0f) - (keyboard.sKey.isPressed ? 1f : 0f)); // WASD 방향
             Vector2 movement = CombatMath.NormalizeMovement(input) * runtimeSettings.playerSpeed * Time.deltaTime; // 정규화 이동량
-            player.transform.position = runtimeSettings.ClampPosition((Vector2)player.transform.position + movement, PrototypeSettings.PlayerRadius); // 경계 안의 플레이어 위치 변경
+            player.transform.position = mapRegion.ClampPosition((Vector2)player.transform.position + movement, PrototypeSettings.PlayerRadius); // 경계 안의 플레이어 위치 변경
         }
 
         private void ReadAimAndAttack() // 마우스 조준과 공격
@@ -203,26 +227,29 @@ namespace Phi // 프로토타입 영역
         {
             Vector2 origin = player.transform.position; // 플레이어 중심 좌표
             float markerWidth = 0.12f; // 조준 표시 두께
-            float mapWidth = Mathf.Max(PrototypeSettings.MinimumMapHalfSize, runtimeSettings.mapHalfWidth); // 공간 가로 반경
-            float mapHeight = Mathf.Max(PrototypeSettings.MinimumMapHalfSize, runtimeSettings.mapHalfHeight); // 공간 세로 반경
-            float limitX = Mathf.Max(0f, mapWidth - PrototypeSettings.BoundaryThickness - markerWidth * 0.5f * Mathf.Abs(aim.y)); // 두께를 포함한 가로 한계
-            float limitY = Mathf.Max(0f, mapHeight - PrototypeSettings.BoundaryThickness - markerWidth * 0.5f * Mathf.Abs(aim.x)); // 두께를 포함한 세로 한계
+            Rect area = mapRegion.Interior; // 씬 경계의 안쪽 영역
+            float paddingX = markerWidth * 0.5f * Mathf.Abs(aim.y); // 조준 표시의 가로 여유
+            float paddingY = markerWidth * 0.5f * Mathf.Abs(aim.x); // 조준 표시의 세로 여유
+            float left = area.xMin + paddingX; // 표시 두께를 반영한 왼쪽 한계
+            float right = area.xMax - paddingX; // 표시 두께를 반영한 오른쪽 한계
+            float bottom = area.yMin + paddingY; // 표시 두께를 반영한 아래쪽 한계
+            float top = area.yMax - paddingY; // 표시 두께를 반영한 위쪽 한계
             float length = 1.15f; // 기본 조준 표시 길이
             if (aim.x > 0.0001f) // 오른쪽 조준 여부
             {
-                length = Mathf.Min(length, (limitX - origin.x) / aim.x); // 오른쪽 경계까지의 길이
+                length = Mathf.Min(length, (right - origin.x) / aim.x); // 오른쪽 경계까지의 길이
             }
             if (aim.x < -0.0001f) // 왼쪽 조준 여부
             {
-                length = Mathf.Min(length, (-limitX - origin.x) / aim.x); // 왼쪽 경계까지의 길이
+                length = Mathf.Min(length, (left - origin.x) / aim.x); // 왼쪽 경계까지의 길이
             }
             if (aim.y > 0.0001f) // 위쪽 조준 여부
             {
-                length = Mathf.Min(length, (limitY - origin.y) / aim.y); // 위쪽 경계까지의 길이
+                length = Mathf.Min(length, (top - origin.y) / aim.y); // 위쪽 경계까지의 길이
             }
             if (aim.y < -0.0001f) // 아래쪽 조준 여부
             {
-                length = Mathf.Min(length, (-limitY - origin.y) / aim.y); // 아래쪽 경계까지의 길이
+                length = Mathf.Min(length, (bottom - origin.y) / aim.y); // 아래쪽 경계까지의 길이
             }
             length = Mathf.Max(0f, length); // 음수 길이 방지
             aimMarker.transform.position = player.transform.position + (Vector3)(aim * (length * 0.5f)); // 플레이어 중심에서 표시 끝까지 위치
@@ -294,7 +321,7 @@ namespace Phi // 프로토타입 영역
                 {
                     continue; // 사망 개체 행동 제외
                 }
-                slime.Tick(player, runtimeSettings); // 이동과 공격 처리
+                slime.Tick(player, runtimeSettings, mapRegion); // 이동과 공격 처리
                 if (player.Dead) // 플레이어 사망 확인
                 {
                     gameOverPanel.SetActive(true); // 재시작 화면 표시
@@ -444,6 +471,70 @@ namespace Phi // 프로토타입 영역
         }
     }
 
+    internal sealed class MapRegion // 씬 맵의 바닥과 경계 정보
+    {
+        private readonly SpriteRenderer floor; // 씬 바닥 렌더러
+        private readonly SpriteRenderer top; // 위쪽 경계 렌더러
+        private readonly SpriteRenderer bottom; // 아래쪽 경계 렌더러
+        private readonly SpriteRenderer left; // 왼쪽 경계 렌더러
+        private readonly SpriteRenderer right; // 오른쪽 경계 렌더러
+        public Bounds FloorBounds { get { return floor.bounds; } } // 바닥의 월드 좌표 범위
+        public Rect Interior { get { return Rect.MinMaxRect(left.bounds.max.x, bottom.bounds.max.y, right.bounds.min.x, top.bounds.min.y); } } // 사방 벽의 안쪽 면
+
+        public MapRegion(SpriteRenderer floor, SpriteRenderer top, SpriteRenderer bottom, SpriteRenderer left, SpriteRenderer right) // 씬 맵 참조 연결
+        {
+            this.floor = floor; // 바닥 렌더러 보관
+            this.top = top; // 위쪽 경계 렌더러 보관
+            this.bottom = bottom; // 아래쪽 경계 렌더러 보관
+            this.left = left; // 왼쪽 경계 렌더러 보관
+            this.right = right; // 오른쪽 경계 렌더러 보관
+        }
+
+        public bool IsValid() // 씬 맵의 축 정렬과 경계 배치 확인
+        {
+            if (!HasPositiveAlignedAxes(floor.transform) || !HasPositiveAlignedAxes(top.transform) || !HasPositiveAlignedAxes(bottom.transform) || !HasPositiveAlignedAxes(left.transform) || !HasPositiveAlignedAxes(right.transform)) // 바닥과 각 벽의 회전 또는 뒤집힘 확인
+            {
+                return false; // 축 정렬된 양수 크기 필요
+            }
+            if (!floor.enabled || !top.enabled || !bottom.enabled || !left.enabled || !right.enabled || !floor.gameObject.activeInHierarchy || !top.gameObject.activeInHierarchy || !bottom.gameObject.activeInHierarchy || !left.gameObject.activeInHierarchy || !right.gameObject.activeInHierarchy) // 비활성 맵 구성 요소 확인
+            {
+                return false; // 표시되지 않는 맵 구성 차단
+            }
+            Bounds floorBounds = FloorBounds; // 바닥의 월드 좌표 범위
+            Rect area = Interior; // 사방 경계의 안쪽 영역
+            float minimumSize = PrototypeSettings.SlimeRadius * 2f; // 가장 큰 적 도형의 최소 공간
+            if (area.width < minimumSize || area.height < minimumSize) // 도형을 담을 수 없는 공간 확인
+            {
+                return false; // 너무 작은 맵 차단
+            }
+            if (area.xMin < floorBounds.min.x || area.xMax > floorBounds.max.x || area.yMin < floorBounds.min.y || area.yMax > floorBounds.max.y) // 벽이 바닥 밖에 있는지 확인
+            {
+                return false; // 바닥과 경계 불일치 차단
+            }
+            if (top.bounds.min.x > area.xMin || top.bounds.max.x < area.xMax || bottom.bounds.min.x > area.xMin || bottom.bounds.max.x < area.xMax || left.bounds.min.y > area.yMin || left.bounds.max.y < area.yMax || right.bounds.min.y > area.yMin || right.bounds.max.y < area.yMax) // 벽이 사방을 덮는지 확인
+            {
+                return false; // 틈이 있는 경계 차단
+            }
+            return true; // 사용 가능한 씬 맵
+        }
+
+        private static bool HasPositiveAlignedAxes(Transform part) // 구성 요소의 양수 축 정렬 확인
+        {
+            Vector3 axisX = part.localToWorldMatrix.MultiplyVector(Vector3.right); // 구성 요소의 월드 가로축
+            Vector3 axisY = part.localToWorldMatrix.MultiplyVector(Vector3.up); // 구성 요소의 월드 세로축
+            return axisX.x > 0f && axisY.y > 0f && Mathf.Abs(axisX.y) <= 0.0001f && Mathf.Abs(axisY.x) <= 0.0001f && Mathf.Abs(axisX.z) <= 0.0001f && Mathf.Abs(axisY.z) <= 0.0001f; // 양수 크기와 축 정렬 여부
+        }
+        public Vector2 ClampPosition(Vector2 position, float radius) // 도형 전체의 벽 안쪽 위치 계산
+        {
+            Rect area = Interior; // 실제 벽의 안쪽 영역
+            float margin = Mathf.Max(0f, radius); // 대상 도형 반폭
+            float minX = Mathf.Min(area.center.x, area.xMin + margin); // 가로 최소 중심 위치
+            float maxX = Mathf.Max(area.center.x, area.xMax - margin); // 가로 최대 중심 위치
+            float minY = Mathf.Min(area.center.y, area.yMin + margin); // 세로 최소 중심 위치
+            float maxY = Mathf.Max(area.center.y, area.yMax - margin); // 세로 최대 중심 위치
+            return new Vector2(Mathf.Clamp(position.x, minX, maxX), Mathf.Clamp(position.y, minY, maxY)); // 씬 벽 기준 위치 제한
+        }
+    }
     internal sealed class Slime // 슬라임 행동 상태
     {
         public Fighter Fighter { get; private set; } // 슬라임 전투 상태
@@ -458,14 +549,14 @@ namespace Phi // 프로토타입 영역
             Fighter = fighter; // 전투 상태 저장
         }
 
-        public void Tick(Fighter player, PrototypeSettings settings) // 슬라임 행동 갱신
+        public void Tick(Fighter player, PrototypeSettings settings, MapRegion mapRegion) // 슬라임 행동 갱신
         {
             Vector2 offset = player.transform.position - Fighter.transform.position; // 플레이어까지 방향
             if (dashRemaining > 0f) // 돌진 중 확인
             {
                 float step = Mathf.Min(dashRemaining, Mathf.Max(0.01f, settings.slimeDashSpeed) * Time.deltaTime); // 돌진 이동량
                 Vector2 start = Fighter.transform.position; // 돌진 이동 전 위치
-                Vector2 end = settings.ClampPosition(start + dashDirection * step, PrototypeSettings.SlimeRadius); // 경계 안의 돌진 도착 위치
+                Vector2 end = mapRegion.ClampPosition(start + dashDirection * step, PrototypeSettings.SlimeRadius); // 경계 안의 돌진 도착 위치
                 Vector2 movement = end - start; // 실제 돌진 이동 벡터
                 Fighter.transform.position = end; // 경계 안의 돌진 이동
                 dashRemaining -= step; // 남은 돌진 거리 갱신
@@ -500,11 +591,14 @@ namespace Phi // 프로토타입 영역
             if (offset.magnitude > settings.slimeAttackRange * 0.8f) // 적정 거리 밖 확인
             {
                 Vector2 movement = offset.normalized * Mathf.Min(settings.slimeSpeed * Time.deltaTime, offset.magnitude); // 플레이어 방향 접근 이동량
-                Fighter.transform.position = settings.ClampPosition((Vector2)Fighter.transform.position + movement, PrototypeSettings.SlimeRadius); // 경계 안의 접근 위치
+                Fighter.transform.position = mapRegion.ClampPosition((Vector2)Fighter.transform.position + movement, PrototypeSettings.SlimeRadius); // 경계 안의 접근 위치
             }
         }
     }
 }
+
+
+
 
 
 
