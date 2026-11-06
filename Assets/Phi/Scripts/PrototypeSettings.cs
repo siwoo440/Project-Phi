@@ -5,7 +5,8 @@ namespace Phi // 전투 설정 영역
     public enum WeaponType // 첫 전투 무기 선택
     {
         Sword, // 기본 검
-        Bow // 기본 활
+        Bow, // 기본 활
+        Staff // 기본 지팡이
     }
 
     [CreateAssetMenu(menuName = "Phi/Prototype Settings")] // 설정 에셋 생성 메뉴
@@ -31,6 +32,12 @@ namespace Phi // 전투 설정 영역
         public float bowInterval = 0.70f; // 활 공격 간격
         public float bowRange = 7f; // 화살 최대 이동 거리
         public float bowProjectileSpeed = 14f; // 화살 이동속도
+        public int staffAttack = 8; // 지팡이 공격력
+        public float staffInterval = 0.90f; // 지팡이 공격 간격
+        public float staffRange = 5.5f; // 마법탄 최대 이동 거리
+        public float staffProjectileSpeed = 9f; // 마법탄 이동속도
+        public float staffExplosionRadius = 1.1f; // 마법탄 폭발 반경
+        public int staffExplosionTargets = 4; // 폭발 최대 대상 수
         public int slimeHealth = 50; // 슬라임 최대 체력
         public int slimeAttack = 8; // 슬라임 공격력
         public int slimeDefense = 2; // 슬라임 방어력

@@ -19,6 +19,7 @@ namespace Phi // 프로토타입 영역
         private readonly List<BowArrow> arrows = new List<BowArrow>(); // 발사된 화살 상태 목록
         private readonly List<RaycastHit2D> arrowHits = new List<RaycastHit2D>(); // 화살 경로 충돌 결과
         private readonly List<Collider2D> arrowOverlaps = new List<Collider2D>(); // 화살 출발점 충돌 결과
+        private readonly List<GameObject> explosionEffects = new List<GameObject>(); // 일시적인 폭발 표시 목록
         private Camera gameCamera; // 추적 카메라
         private GameObject aimMarker; // 조준 표시
         private Text healthText; // 체력 글자
@@ -36,6 +37,8 @@ namespace Phi // 프로토타입 영역
         private ContactFilter2D arrowCollisionFilter; // 화살 적과 장애물 충돌 필터
         private readonly RaycastHit2D[] swordOcclusionHits = new RaycastHit2D[1]; // 검 장애물 판정 결과
         private Sprite square; // 임시 사각형 그림
+        private Texture2D explosionTexture; // 임시 원형 폭발 테두리 질감
+        private Sprite explosionSprite; // 임시 원형 폭발 테두리 그림
         private Vector2 aim = Vector2.right; // 마지막 조준 방향
 
         private void Start() // 전투 시작
@@ -115,6 +118,7 @@ namespace Phi // 프로토타입 영역
             FollowCamera(); // 이동 직후 카메라 위치 반영
             ReadAimAndAttack(); // 조준과 공격 입력
             UpdateArrows(); // 발사된 화살 이동과 충돌
+            UpdateExplosionEffects(); // 종료된 폭발 표시 정리
             UpdateSlimes(); // 슬라임 행동
             if (player.Dead) // 이번 프레임의 플레이어 사망 여부
             {
@@ -229,7 +233,7 @@ namespace Phi // 프로토타입 영역
             if ((attackPressed || (pressActive && mouse.leftButton.isPressed)) && !blockedPress && !PointerOverUi(mouse.position.ReadValue()) && Time.time >= nextAttack) // 짧은 클릭과 홀드 공격 검사
             {
                 Attack(); // 선택한 무기의 일반 공격
-                float interval = runtimeSettings.startingWeapon == WeaponType.Bow ? runtimeSettings.bowInterval : runtimeSettings.swordInterval; // 선택 무기의 공격 간격
+                float interval = runtimeSettings.startingWeapon == WeaponType.Staff ? runtimeSettings.staffInterval : runtimeSettings.startingWeapon == WeaponType.Bow ? runtimeSettings.bowInterval : runtimeSettings.swordInterval; // 선택 무기의 공격 간격
                 nextAttack = Time.time + Mathf.Max(0.01f, interval); // 다음 공격 가능 시각
             }
             attackPressed = false; // 이번 프레임의 클릭 시작 처리 완료
@@ -288,6 +292,14 @@ namespace Phi // 프로토타입 영역
         private void OnDestroy() // 입력 이벤트 정리
         {
             ClearArrows(); // 장면 종료 시 화살 상태 정리
+            if (explosionSprite != null) // 폭발 그림 생성 여부
+            {
+                Destroy(explosionSprite); // 임시 폭발 그림 제거
+            }
+            if (explosionTexture != null) // 폭발 질감 생성 여부
+            {
+                Destroy(explosionTexture); // 임시 폭발 질감 제거
+            }
             if (attackAction != null) // 입력 이벤트 생성 여부
             {
                 attackAction.performed -= OnAttackPressed; // 클릭 콜백 해제
@@ -319,6 +331,11 @@ namespace Phi // 프로토타입 영역
                 LaunchArrow(); // 고정 조준 방향의 화살 발사
                 return; // 검 공격 생략
             }
+            if (runtimeSettings.startingWeapon == WeaponType.Staff) // 지팡이 장착 여부
+            {
+                LaunchStaffBolt(); // 고정 조준 방향의 마법탄 발사
+                return; // 검 공격 생략
+            }
             Physics2D.SyncTransforms(); // 변경된 장애물 위치의 물리 반영
             List<Fighter> targets = new List<Fighter>(); // 이번 공격의 대상 목록
             foreach (Slime slime in slimes) // 각 슬라임 검사
@@ -344,6 +361,93 @@ namespace Phi // 프로토타입 영역
             arrows.Add(new BowArrow(visual, aim, runtimeSettings.bowProjectileSpeed, runtimeSettings.bowRange, attack, obstacleLayer)); // 고정 방향 화살 상태 추가
         }
 
+        private void LaunchStaffBolt() // 지팡이의 일반 공격 발사
+        {
+            float size = BowArrow.VisualRadius * 2f; // 임시 마법탄 도형 크기
+            GameObject visual = Shape("Magic Bolt", player.transform.position, new Vector2(size, size), new Color(0.45f, 0.75f, 1f), 4); // 플레이어 중심의 마법탄 표시
+            int attack = runtimeSettings.playerAttack + runtimeSettings.staffAttack; // 발사 순간의 최종 공격력
+            float radius = Mathf.Max(0f, runtimeSettings.staffExplosionRadius); // 발사 순간의 폭발 반경
+            int maximum = Mathf.Max(0, runtimeSettings.staffExplosionTargets); // 발사 순간의 최대 대상 수
+            arrows.Add(new BowArrow(visual, aim, runtimeSettings.staffProjectileSpeed, runtimeSettings.staffRange, attack, obstacleLayer, position => ExplodeStaff(position, attack, radius, maximum))); // 적중 또는 사거리 도달 시 폭발하는 마법탄
+        }
+
+        private void ExplodeStaff(Vector2 position, int attack, float radius, int maximum) // 지팡이의 단일 폭발 처리
+        {
+            ShowStaffExplosion(position, radius); // 임시 폭발 범위 표시
+            List<Slime> candidates = new List<Slime>(); // 벽에 가려지지 않은 폭발 대상 목록
+            HashSet<Fighter> unique = new HashSet<Fighter>(); // 동일 전투 대상 중복 검사
+            foreach (Slime slime in slimes) // 현재 슬라임 목록 검사
+            {
+                Fighter target = slime.Fighter; // 슬라임 전투 상태
+                if (target == null || target.Dead || !unique.Add(target)) // 사망 또는 중복 대상 확인
+                {
+                    continue; // 유효하지 않은 대상 제외
+                }
+                Vector2 offset = (Vector2)target.transform.position - position; // 폭발 중심에서 대상 중심까지 방향
+                if (offset.sqrMagnitude > radius * radius) // 대상 중심의 폭발 반경 검사
+                {
+                    continue; // 폭발 범위 밖 대상 제외
+                }
+                if (Physics2D.Linecast(position, target.transform.position, swordOcclusionFilter, swordOcclusionHits) != 0) // 폭발 중심과 대상 사이의 벽 검사
+                {
+                    continue; // 벽에 가려진 대상 제외
+                }
+                candidates.Add(slime); // 피해 가능한 고유 대상 추가
+            }
+            candidates.Sort((left, right) => // 폭발 중심에서 가까운 대상 정렬
+            {
+                float leftDistance = ((Vector2)left.Fighter.transform.position - position).sqrMagnitude; // 왼쪽 대상의 거리 제곱
+                float rightDistance = ((Vector2)right.Fighter.transform.position - position).sqrMagnitude; // 오른쪽 대상의 거리 제곱
+                int distanceOrder = leftDistance.CompareTo(rightDistance); // 대상 거리 순서 비교
+                return distanceOrder != 0 ? distanceOrder : slimes.IndexOf(left).CompareTo(slimes.IndexOf(right)); // 거리 동률의 생성 순서
+            });
+            for (int index = 0; index < Mathf.Min(maximum, candidates.Count); index++) // 최대 대상 수만큼 피해 적용
+            {
+                Fighter target = candidates[index].Fighter; // 현재 폭발 피해 대상
+                target.TakeDamage(CombatMath.Damage(attack, 1f, target.Defense, false)); // 공통 계산의 지팡이 피해 적용
+            }
+        }
+
+        private void ShowStaffExplosion(Vector2 position, float radius) // 일시적인 원형 폭발 범위 표시
+        {
+            if (explosionSprite == null) // 원형 폭발 그림 생성 여부
+            {
+                const int resolution = 64; // 임시 폭발 그림 해상도
+                explosionTexture = new Texture2D(resolution, resolution, TextureFormat.RGBA32, false); // 임시 투명 질감 생성
+                explosionTexture.filterMode = FilterMode.Bilinear; // 폭발 테두리 확대 보간
+                Color32[] pixels = new Color32[resolution * resolution]; // 폭발 그림의 색상 배열
+                for (int y = 0; y < resolution; y++) // 그림의 세로 좌표 순회
+                {
+                    for (int x = 0; x < resolution; x++) // 그림의 가로 좌표 순회
+                    {
+                        float dx = x + 0.5f - resolution * 0.5f; // 그림 중심에서 가로 거리
+                        float dy = y + 0.5f - resolution * 0.5f; // 그림 중심에서 세로 거리
+                        float distance = Mathf.Sqrt(dx * dx + dy * dy); // 그림 중심에서 원형 거리
+                        byte alpha = distance >= 28f && distance <= 31f ? (byte)255 : (byte)0; // 임시 원형 테두리 불투명도
+                        pixels[y * resolution + x] = new Color32(255, 255, 255, alpha); // 테두리 색상 저장
+                    }
+                }
+                explosionTexture.SetPixels32(pixels); // 폭발 테두리 픽셀 적용
+                explosionTexture.Apply(); // 폭발 질감 업로드
+                explosionSprite = Sprite.Create(explosionTexture, new Rect(0f, 0f, resolution, resolution), new Vector2(0.5f, 0.5f), resolution); // 단위 크기의 원형 그림
+            }
+            GameObject effect = Shape("Staff Explosion", position, new Vector2(radius * 2f, radius * 2f), new Color(0.5f, 0.8f, 1f), 4); // 폭발 반경에 맞는 임시 표시
+            effect.GetComponent<SpriteRenderer>().sprite = explosionSprite; // 원형 테두리 그림 연결
+            explosionEffects.Add(effect); // 전투 종료 시 정리할 표시 보관
+            Destroy(effect, 0.15f); // 임시 폭발 표시 지속시간
+        }
+
+        private void UpdateExplosionEffects() // 종료된 폭발 표시 목록 정리
+        {
+            for (int index = explosionEffects.Count - 1; index >= 0; index--) // 제거에 안전한 역순 검사
+            {
+                if (explosionEffects[index] == null) // 표시 시간 종료 여부
+                {
+                    explosionEffects.RemoveAt(index); // 종료된 표시 상태 제거
+                }
+            }
+        }
+
         private void UpdateArrows() // 발사된 화살 이동과 충돌 처리
         {
             if (arrows.Count == 0) // 화살 존재 여부
@@ -367,6 +471,14 @@ namespace Phi // 프로토타입 영역
                 arrow.Clear(); // 화살 표시 제거
             }
             arrows.Clear(); // 화살 상태 목록 초기화
+            foreach (GameObject effect in explosionEffects) // 남은 폭발 표시 검사
+            {
+                if (effect != null) // 폭발 표시 존재 여부
+                {
+                    Destroy(effect); // 이전 전투의 폭발 표시 제거
+                }
+            }
+            explosionEffects.Clear(); // 폭발 표시 목록 초기화
         }
 
         private void UpdateSlimes() // 슬라임 행동 갱신

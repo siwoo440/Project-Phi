@@ -12,9 +12,10 @@ namespace Phi // 전투 투사체 영역
         private readonly float speed; // 발사 순간의 화살 속도
         private readonly int attack; // 발사 순간의 공격력
         private readonly int obstacleLayer; // 장애물 충돌 계층
+        private readonly System.Action<Vector2> explosion; // 적 또는 사거리 도달 시 폭발 동작
         private float remainingDistance; // 남은 화살 이동 거리
 
-        public BowArrow(GameObject visual, Vector2 direction, float speed, float range, int attack, int obstacleLayer) // 화살 상태 생성
+        public BowArrow(GameObject visual, Vector2 direction, float speed, float range, int attack, int obstacleLayer, System.Action<Vector2> explosion = null) // 투사체 상태 생성
         {
             this.visual = visual; // 화면 표시 보관
             this.direction = direction.normalized; // 발사 방향 고정
@@ -22,6 +23,7 @@ namespace Phi // 전투 투사체 영역
             remainingDistance = Mathf.Max(0f, range); // 음수 사거리 방지
             this.attack = attack; // 발사 시점 공격력 보관
             this.obstacleLayer = obstacleLayer; // 장애물 계층 보관
+            this.explosion = explosion; // 선택적 범위 폭발 동작 보관
         }
 
         public bool Tick(MapRegion map, ContactFilter2D filter, List<RaycastHit2D> hits, List<Collider2D> overlaps, float elapsed) // 한 프레임의 화살 이동과 충돌
@@ -62,7 +64,14 @@ namespace Phi // 전투 투사체 영역
             {
                 if (!hitWall && target != null) // 최초 충돌이 생존 적인 경우
                 {
-                    target.TakeDamage(CombatMath.Damage(attack, 1f, target.Defense, false)); // 공통 계산의 활 피해 적용
+                    if (explosion != null) // 범위 폭발 투사체 여부
+                    {
+                        explosion(start + direction * nearestDistance); // 충돌 지점에서 폭발 피해 적용
+                    }
+                    else // 단일 피해 투사체 여부
+                    {
+                        target.TakeDamage(CombatMath.Damage(attack, 1f, target.Defense, false)); // 공통 계산의 활 피해 적용
+                    }
                 }
                 Object.Destroy(visual); // 충돌 후 화살 표시 제거
                 return true; // 화살 종료
@@ -71,6 +80,10 @@ namespace Phi // 전투 투사체 영역
             remainingDistance = Mathf.Max(0f, remainingDistance - travel); // 남은 사거리 갱신
             if (remainingDistance <= 0f) // 최대 사거리 도달 여부
             {
+                if (explosion != null) // 사거리 끝 범위 폭발 여부
+                {
+                    explosion(end); // 사거리 끝에서 폭발 피해 적용
+                }
                 Object.Destroy(visual); // 사거리 도달 후 표시 제거
                 return true; // 화살 종료
             }

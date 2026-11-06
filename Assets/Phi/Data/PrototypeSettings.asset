@@ -28,6 +28,12 @@ MonoBehaviour:
   bowInterval: 0.7
   bowRange: 7
   bowProjectileSpeed: 14
+  staffAttack: 8
+  staffInterval: 0.9
+  staffRange: 5.5
+  staffProjectileSpeed: 9
+  staffExplosionRadius: 1.1
+  staffExplosionTargets: 4
   slimeHealth: 50
   slimeAttack: 8
   slimeDefense: 2
