@@ -135,6 +135,7 @@ public class MapBoundsTests // 시험 공간 경계 검증
                     if (floor != null) // 바닥 존재 여부
                     {
                         floor.localScale = new Vector3(4f, 2f, 1f); // 씬에서 편집한 작은 맵 크기
+                        floor.Find("Spawn Areas/Initial/Slime Spawn 1").localPosition = new Vector3(0.3f, 0f, 0f); // 작은 맵의 안전한 씬 스폰 지점
                     }
                 }
             }
@@ -152,6 +153,7 @@ public class MapBoundsTests // 시험 공간 경계 검증
             Transform right = floor.Find("Boundary Right"); // 새 씬의 오른쪽 벽
             float rightInterior = right.GetComponent<SpriteRenderer>().bounds.min.x; // 오른쪽 벽의 안쪽 면
             Transform slime = GameObject.Find("Slime 1").transform; // 새 전투의 첫 슬라임
+            Assert.That(slime.position, Is.EqualTo(floor.Find("Spawn Areas/Initial/Slime Spawn 1").position)); // 수정된 씬 지점의 실제 사용
             Assert.That(slime.position.x + 0.425f, Is.LessThanOrEqualTo(rightInterior + 0.0001f)); // 맵 안쪽의 슬라임 시작 위치
         }
         finally // 씬 콜백 누수 방지

@@ -12,6 +12,15 @@ namespace Phi // 프로토타입 영역
     {
         [SerializeField] private PrototypeSettings settings; // 조정 가능한 전투 설정
         [SerializeField] private SpriteRenderer mapFloor; // 씬에 배치한 맵 바닥
+        [SerializeField] private Transform initialSpawnPoints; // 씬에 저장한 시작 지점 묶음
+        [SerializeField] private Transform encounterSpawnPoints; // 구역 진입 후 지점 묶음
+        [SerializeField] private BoxCollider2D encounterTrigger; // 플레이어 진입 구역
+        [SerializeField, Min(0)] private int maxLivingEnemies = 20; // 동시에 생존 가능한 적 상한
+        private readonly int[] initialPending = new int[5]; // 시작 종류별 남은 등장 수
+        private readonly List<EnemySpawnPoint> encounterPending = new List<EnemySpawnPoint>(); // 구역 지점별 남은 등장 요청
+        private readonly int[] spawnedBySpecies = new int[5]; // 종류별 누적 생성 수
+        private readonly List<Collider2D> spawnObstacles = new List<Collider2D>(); // 생성 지점의 장애물 검사 결과
+        private bool encounterActivated; // 구역의 일회성 활성화 여부
         private MapRegion mapRegion; // 씬 맵의 실제 경계
         private PrototypeSettings runtimeSettings; // 현재 전투 설정
         private WeaponType equippedWeapon; // 현재 전투에서 장착한 무기
@@ -192,6 +201,7 @@ namespace Phi // 프로토타입 영역
             {
                 ReadMovement(); // 이동 입력
             }
+            UpdateSpawning(); // 구역 진입과 대기 중인 적 생성
             FollowCamera(); // 이동 직후 카메라 위치 반영
             SkillState.Tick(Time.deltaTime); // 마나 회복과 대기시간 갱신
             ReadAimAndAttack(suppressAttack); // 조준과 일반 공격 입력
@@ -288,70 +298,211 @@ namespace Phi // 프로토타입 영역
             aimMarker = Shape("Aim", Vector2.zero, new Vector2(0.8f, 0.12f), Color.white, 3); // 조준 방향 표시
             interactionMarker = Shape("Interaction Marker", Vector2.zero, new Vector2(0.2f, 0.2f), new Color(1f, 0.9f, 0.2f), 5); // 선택 대상의 임시 표시
             interactionMarker.SetActive(false); // 선택 대상이 없을 때 표시 숨김
-            for (int index = 0; index < Mathf.Max(0, runtimeSettings.slimeCount); index++) // 시험 슬라임 생성 반복
+            InitializeSpawning(); // 씬 지점과 초기 적 생성 준비
+        }
+
+        private void InitializeSpawning() // 시작 적 수와 스폰 지점 확인
+        {
+            initialPending[0] = Mathf.Max(0, runtimeSettings.slimeCount); // 시작 슬라임 수
+            initialPending[1] = Mathf.Max(0, runtimeSettings.goblinCount); // 시작 고블린 수
+            initialPending[2] = Mathf.Max(0, runtimeSettings.skeletonCount); // 시작 궁수 수
+            initialPending[3] = Mathf.Max(0, runtimeSettings.orcCount); // 시작 오크 수
+            initialPending[4] = Mathf.Max(0, runtimeSettings.wolfCount); // 시작 늑대 수
+            if (initialSpawnPoints == null || encounterSpawnPoints == null || encounterTrigger == null) // 필수 씬 참조 누락 여부
             {
-                float angle = index * Mathf.PI * 2f / Mathf.Max(1, runtimeSettings.slimeCount); // 배치 각도
-                Vector2 position = mapRegion.ClampPosition(mapCenter + new Vector2(Mathf.Cos(angle), Mathf.Sin(angle)) * 4f, PrototypeSettings.SlimeRadius); // 경계 안의 배치 위치
-                GameObject slimeObject = Shape("Slime " + (index + 1), position, new Vector2(0.65f, 0.65f), new Color(0.35f, 0.9f, 0.35f), 1); // 슬라임 도형
-                if (combatLayersReady) // 전투 계층 준비 여부
+                Debug.LogError("씬의 적 스폰 지점 또는 진입 구역이 연결되지 않았습니다."); // 잘못된 씬 구성 보고
+            }
+            ProcessSpawnBatch(initialSpawnPoints, initialPending); // 안전한 시작 지점에 적 생성
+        }
+
+        private void UpdateSpawning() // 구역 진입과 대기 요청 처리
+        {
+            if (!encounterActivated && encounterSpawnPoints != null && encounterSpawnPoints.gameObject.activeInHierarchy && encounterTrigger != null && encounterTrigger.isActiveAndEnabled) // 아직 사용하지 않은 구역 확인
+            {
+                Physics2D.SyncTransforms(); // 현재 플레이어와 구역 위치 반영
+                if (encounterTrigger.OverlapPoint(player.transform.position)) // 플레이어의 실제 구역 진입
                 {
-                    slimeObject.layer = enemyLayer; // 적 충돌 계층 지정
+                    encounterActivated = true; // 재진입 중복 활성화 방지
+                    foreach (EnemySpawnPoint point in encounterSpawnPoints.GetComponentsInChildren<EnemySpawnPoint>()) // 활성화된 구역 지점 순회
+                    {
+                        int kind = (int)point.Species; // 지점의 적 종류 번호
+                        if (point.isActiveAndEnabled && kind >= 0 && kind < spawnedBySpecies.Length) // 활성 지점과 종류의 유효 범위
+                        {
+                            encounterPending.Add(point); // 각 지점의 일회성 등장 요청
+                        }
+                    }
                 }
-                BoxCollider2D slimeCollider = slimeObject.AddComponent<BoxCollider2D>(); // 화살 적중용 슬라임 충돌체
-                slimeCollider.size = Vector2.one; // 슬라임 도형과 같은 충돌 크기
-                Fighter fighter = slimeObject.AddComponent<Fighter>(); // 슬라임 체력 상태
-                fighter.Initialize(runtimeSettings.slimeHealth, runtimeSettings.slimeDefense); // 슬라임 능력치 설정
-                fighter.Died += SpawnSlimeLoot; // 슬라임 사망 전이의 시험 전리품 연결
-                slimes.Add(new Slime(fighter, MoveWithinWalls)); // 슬라임 행동 상태 추가
-                enemies.Add(fighter); // 공통 공격 대상에 슬라임 등록
             }
-            for (int index = 0; index < Mathf.Max(0, runtimeSettings.goblinCount); index++) // 시험 고블린 생성 반복
+            ProcessSpawnBatch(initialSpawnPoints, initialPending); // 남은 시작 요청 처리
+            ProcessEncounterSpawns(); // 남은 구역 지점별 요청 처리
+        }
+
+        private void ProcessEncounterSpawns() // 각 구역 지점의 일회성 요청 처리
+        {
+            if (encounterPending.Count == 0 || encounterSpawnPoints == null || !encounterSpawnPoints.gameObject.activeInHierarchy || !combatLayersReady) // 남은 요청과 구역 활성 여부
             {
-                float angle = -Mathf.PI * 0.5f + index * Mathf.PI * 2f / Mathf.Max(1, runtimeSettings.goblinCount); // 근접 적 배치 각도
-                Vector2 position = mapRegion.ClampPosition(mapCenter + new Vector2(Mathf.Cos(angle), Mathf.Sin(angle)) * 4f, PrototypeSettings.SlimeRadius); // 씬 경계 안의 고블린 위치
-                GameObject goblinObject = Shape("Goblin " + (index + 1), position, new Vector2(0.7f, 0.7f), new Color(0.85f, 0.45f, 0.25f), 1); // 고블린 임시 도형
-                if (combatLayersReady) // 전투 계층 준비 여부
+                return; // 요청이나 안전 검사 조건이 없으면 대기
+            }
+            int living = CountLivingEnemies(); // 현재 생존한 적 수
+            int limit = Mathf.Max(0, maxLivingEnemies); // 동시 생존 상한
+            if (living >= limit) // 상한 도달 여부
+            {
+                return; // 자리가 날 때까지 구역 요청 대기
+            }
+            Physics2D.SyncTransforms(); // 변경된 장애물 위치 반영
+            for (int index = 0; index < encounterPending.Count && living < limit;) // 남은 지점과 상한 확인
+            {
+                EnemySpawnPoint point = encounterPending[index]; // 아직 처리하지 않은 지점
+                if (point == null) // 제거된 지점 여부
                 {
-                    goblinObject.layer = enemyLayer; // 적 충돌 계층 지정
+                    encounterPending.RemoveAt(index); // 제거된 지점의 요청 정리
                 }
-                BoxCollider2D goblinCollider = goblinObject.AddComponent<BoxCollider2D>(); // 투사체 적중용 충돌체
-                goblinCollider.size = Vector2.one; // 고블린 도형 크기와 일치
-                Fighter goblinFighter = goblinObject.AddComponent<Fighter>(); // 고블린 전투 상태
-                goblinFighter.Initialize(runtimeSettings.goblinHealth, runtimeSettings.goblinDefense); // 고블린 기획 능력치 적용
-                GameObject weapon = Shape("Goblin Weapon", position, new Vector2(0.18f, 0.8f), new Color(0.95f, 0.9f, 0.6f), 2); // 근접 베기 예고용 무기
-                weapon.transform.SetParent(goblinObject.transform, false); // 고블린에 무기 표시 연결
-                weapon.transform.localPosition = new Vector3(0.55f, 0.05f, 0f); // 본체 옆 무기 위치
-                goblins.Add(new Goblin(goblinFighter, weapon.transform, MoveWithinWalls)); // 독립 고블린 행동 등록
-                enemies.Add(goblinFighter); // 공통 공격 대상에 고블린 등록
-            }
-            for (int index = 0; index < Mathf.Max(0, runtimeSettings.skeletonCount); index++) // 시험 스켈레톤 궁수 생성
-            {
-                float angle = Mathf.PI * 0.5f + index * Mathf.PI * 2f / Mathf.Max(1, runtimeSettings.skeletonCount); // 궁수 배치 각도
-                Fighter fighter = CreateAdditionalEnemy("Skeleton " + (index + 1), mapCenter, angle, new Color(0.82f, 0.82f, 0.9f), runtimeSettings.skeletonHealth, runtimeSettings.skeletonDefense); // 궁수 도형과 기획 능력치
-                Transform bow = CreateEnemyVisual(fighter, "Skeleton Bow", new Vector2(0.15f, 0.8f), new Color(0.65f, 0.45f, 0.2f)); // 궁수 활 예고 표시
-                skeletons.Add(new SkeletonArcher(fighter, bow, MoveWithinWalls)); // 독립 궁수 행동 등록
-            }
-            for (int index = 0; index < Mathf.Max(0, runtimeSettings.orcCount); index++) // 시험 오크 전사 생성
-            {
-                float angle = Mathf.PI + index * Mathf.PI * 2f / Mathf.Max(1, runtimeSettings.orcCount); // 오크 배치 각도
-                Fighter fighter = CreateAdditionalEnemy("Orc " + (index + 1), mapCenter, angle, new Color(0.45f, 0.5f, 0.2f), runtimeSettings.orcHealth, runtimeSettings.orcDefense); // 오크 도형과 기획 능력치
-                Transform axe = CreateEnemyVisual(fighter, "Orc Axe", new Vector2(0.3f, 0.9f), new Color(0.7f, 0.7f, 0.75f)); // 오크 도끼 예고 표시
-                orcs.Add(new OrcWarrior(fighter, axe, MoveWithinWalls)); // 독립 오크 행동 등록
-            }
-            for (int index = 0; index < Mathf.Max(0, runtimeSettings.wolfCount); index++) // 시험 늑대 생성
-            {
-                float angle = -Mathf.PI * 0.25f + index * Mathf.PI * 2f / Mathf.Max(1, runtimeSettings.wolfCount); // 늑대 배치 각도
-                Fighter fighter = CreateAdditionalEnemy("Wolf " + (index + 1), mapCenter, angle, new Color(0.5f, 0.5f, 0.55f), runtimeSettings.wolfHealth, runtimeSettings.wolfDefense); // 늑대 도형과 기획 능력치
-                GameObject path = Shape("Wolf Path", fighter.transform.position, Vector2.one, new Color(1f, 0.35f, 0.2f, 0.65f), 3); // 늑대 도약 경로 예고
-                path.transform.SetParent(fighter.transform, false); // 늑대에 경로 표시 연결
-                wolves.Add(new Wolf(fighter, path.transform, MoveWithinWalls)); // 독립 늑대 행동 등록
+                else if (point.isActiveAndEnabled && (int)point.Species >= 0 && (int)point.Species < spawnedBySpecies.Length && IsSpawnPositionFree(point.transform.position)) // 활성 지점의 종류와 안전 여부
+                {
+                    SpawnEnemy(point.Species, point.transform.position); // 해당 지점에서 적 생성
+                    encounterPending.RemoveAt(index); // 실제 생성한 지점 요청 제거
+                    living++; // 같은 프레임의 생존 수 반영
+                }
+                else // 비활성 또는 막힌 지점
+                {
+                    index++; // 다른 지점부터 처리
+                }
             }
         }
 
-        private Fighter CreateAdditionalEnemy(string name, Vector2 center, float angle, Color color, int health, int defense) // 새 적의 공통 전투 도형 생성
+        private void ProcessSpawnBatch(Transform group, int[] pending) // 종류별 제한된 스폰 요청 처리
         {
-            Vector2 position = mapRegion.ClampPosition(center + new Vector2(Mathf.Cos(angle), Mathf.Sin(angle)) * 4f, PrototypeSettings.SlimeRadius); // 기존 씬 경계 안의 배치
-            GameObject enemy = Shape(name, position, new Vector2(0.7f, 0.7f), color, 1); // 적의 임시 본체
+            if (group == null || !group.gameObject.activeInHierarchy || !combatLayersReady) // 씬 지점과 충돌 계층 확인
+            {
+                return; // 안전한 지점 확인이 불가능하면 요청 대기
+            }
+            bool hasPending = false; // 남은 등장 요청 여부
+            foreach (int count in pending) // 종류별 요청 확인
+            {
+                hasPending |= count > 0; // 하나 이상의 요청 확인
+            }
+            if (!hasPending) // 처리할 요청 부재
+            {
+                return; // 불필요한 지점과 물리 검사 생략
+            }
+            int living = CountLivingEnemies(); // 현재 생존한 적 수
+            int limit = Mathf.Max(0, maxLivingEnemies); // 음수를 제외한 동시 생존 상한
+            if (living >= limit) // 상한 도달 여부
+            {
+                return; // 적이 줄어들 때까지 요청 대기
+            }
+            EnemySpawnPoint[] points = group.GetComponentsInChildren<EnemySpawnPoint>(); // 씬에 저장된 활성 지점만 검색
+            Physics2D.SyncTransforms(); // 이동한 벽의 최신 위치 반영
+            for (int kind = 0; kind < pending.Length && living < limit; kind++) // 다섯 종류의 요청 순회
+            {
+                while (pending[kind] > 0 && living < limit) // 남은 수와 동시 생존 상한 확인
+                {
+                    EnemySpawnPoint selected = null; // 안전한 지점 후보
+                    foreach (EnemySpawnPoint point in points) // 현재 종류의 지점 검색
+                    {
+                        if (point.isActiveAndEnabled && (int)point.Species == kind && IsSpawnPositionFree(point.transform.position)) // 활성 지점의 종류와 안전한 위치 확인
+                        {
+                            selected = point; // 실제로 저장된 지점 선택
+                            break; // 첫 안전 지점 사용
+                        }
+                    }
+                    if (selected == null) // 현재 종류의 안전한 지점 부재
+                    {
+                        break; // 다른 종류를 처리하고 다음 프레임에 재시도
+                    }
+                    SpawnEnemy((EnemySpecies)kind, selected.transform.position); // 선택한 씬 위치에 전투 적 생성
+                    pending[kind]--; // 실제 생성한 요청만 차감
+                    living++; // 같은 프레임의 동시 생존 수 반영
+                }
+            }
+        }
+
+        private int CountLivingEnemies() // 동시 생존 적 수 계산
+        {
+            int living = 0; // 생존 적 누적 수
+            foreach (Fighter enemy in enemies) // 전투에 등록된 적 순회
+            {
+                if (enemy != null && !enemy.Dead && enemy.gameObject.activeInHierarchy) // 활성 생존 적 확인
+                {
+                    living++; // 동시 생존 수 증가
+                }
+            }
+            return living; // 현재 생존 수 반환
+        }
+
+        private bool IsSpawnPositionFree(Vector2 position) // 지점의 경계와 장애물 및 대상 확인
+        {
+            float radius = PrototypeSettings.SlimeRadius; // 모든 적의 안전 반폭
+            if ((mapRegion.ClampPosition(position, radius) - position).sqrMagnitude > 0.000001f) // 도형이 맵 경계 밖으로 나가는지 확인
+            {
+                return false; // 경계 밖 지점은 임의로 이동하지 않고 대기
+            }
+            spawnObstacles.Clear(); // 이전 장애물 검사 결과 제거
+            Physics2D.OverlapBox(position, Vector2.one * (radius * 2f), 0f, swordOcclusionFilter, spawnObstacles); // 지점과 단단한 장애물 겹침 검사
+            if (spawnObstacles.Count > 0 || SpawnOverlaps(position, player, radius)) // 벽 또는 플레이어와 겹치는지 확인
+            {
+                return false; // 안전하지 않은 지점 제외
+            }
+            foreach (Fighter enemy in enemies) // 기존 적과의 거리 검사
+            {
+                if (SpawnOverlaps(position, enemy, radius)) // 살아 있는 적과 겹치는지 확인
+                {
+                    return false; // 같은 위치의 중첩 생성 방지
+                }
+            }
+            return true; // 안전한 씬 지점
+        }
+
+        private static bool SpawnOverlaps(Vector2 position, Fighter fighter, float radius) // 생존 대상과 안전 영역의 겹침 확인
+        {
+            if (fighter == null || fighter.Dead || !fighter.gameObject.activeInHierarchy) // 비활성 또는 사망 대상 확인
+            {
+                return false; // 막힌 위치에서 제외
+            }
+            Vector2 offset = (Vector2)fighter.transform.position - position; // 지점에서 대상까지의 차이
+            return Mathf.Abs(offset.x) < radius * 2f && Mathf.Abs(offset.y) < radius * 2f; // 안전 사각형 중첩 여부
+        }
+
+        private void SpawnEnemy(EnemySpecies species, Vector2 position) // 씬 위치에 종류별 전투 적 생성
+        {
+            int kind = (int)species; // 적 종류 번호
+            int number = ++spawnedBySpecies[kind]; // 재진입과 무관한 종류별 고유 번호
+            if (species == EnemySpecies.Slime) // 슬라임 생성
+            {
+                Fighter fighter = CreateAdditionalEnemy("Slime " + number, position, new Color(0.35f, 0.9f, 0.35f), runtimeSettings.slimeHealth, runtimeSettings.slimeDefense, 0.65f); // 슬라임 도형과 능력치
+                fighter.Died += SpawnSlimeLoot; // 슬라임 사망 전리품 연결
+                slimes.Add(new Slime(fighter, MoveWithinWalls)); // 슬라임 행동 등록
+            }
+            else if (species == EnemySpecies.Goblin) // 고블린 생성
+            {
+                Fighter fighter = CreateAdditionalEnemy("Goblin " + number, position, new Color(0.85f, 0.45f, 0.25f), runtimeSettings.goblinHealth, runtimeSettings.goblinDefense); // 고블린 도형과 능력치
+                Transform weapon = CreateEnemyVisual(fighter, "Goblin Weapon", new Vector2(0.18f, 0.8f), new Color(0.95f, 0.9f, 0.6f)); // 고블린 무기 표시
+                goblins.Add(new Goblin(fighter, weapon, MoveWithinWalls)); // 고블린 행동 등록
+            }
+            else if (species == EnemySpecies.Skeleton) // 궁수 생성
+            {
+                Fighter fighter = CreateAdditionalEnemy("Skeleton " + number, position, new Color(0.82f, 0.82f, 0.9f), runtimeSettings.skeletonHealth, runtimeSettings.skeletonDefense); // 궁수 도형과 능력치
+                Transform bow = CreateEnemyVisual(fighter, "Skeleton Bow", new Vector2(0.15f, 0.8f), new Color(0.65f, 0.45f, 0.2f)); // 궁수 활 표시
+                skeletons.Add(new SkeletonArcher(fighter, bow, MoveWithinWalls)); // 궁수 행동 등록
+            }
+            else if (species == EnemySpecies.Orc) // 오크 생성
+            {
+                Fighter fighter = CreateAdditionalEnemy("Orc " + number, position, new Color(0.45f, 0.5f, 0.2f), runtimeSettings.orcHealth, runtimeSettings.orcDefense); // 오크 도형과 능력치
+                Transform axe = CreateEnemyVisual(fighter, "Orc Axe", new Vector2(0.3f, 0.9f), new Color(0.7f, 0.7f, 0.75f)); // 오크 도끼 표시
+                orcs.Add(new OrcWarrior(fighter, axe, MoveWithinWalls)); // 오크 행동 등록
+            }
+            else if (species == EnemySpecies.Wolf) // 늑대 생성
+            {
+                Fighter fighter = CreateAdditionalEnemy("Wolf " + number, position, new Color(0.5f, 0.5f, 0.55f), runtimeSettings.wolfHealth, runtimeSettings.wolfDefense); // 늑대 도형과 능력치
+                GameObject path = Shape("Wolf Path", fighter.transform.position, Vector2.one, new Color(1f, 0.35f, 0.2f, 0.65f), 3); // 늑대 도약 경로 표시
+                path.transform.SetParent(fighter.transform, false); // 늑대에 경로 연결
+                wolves.Add(new Wolf(fighter, path.transform, MoveWithinWalls)); // 늑대 행동 등록
+            }
+        }
+
+        private Fighter CreateAdditionalEnemy(string name, Vector2 position, Color color, int health, int defense, float size = 0.7f) // 공통 적 전투 도형 생성
+        {
+            GameObject enemy = Shape(name, position, Vector2.one * size, color, 1); // 지정된 씬 위치의 적 본체
             if (combatLayersReady) // 전투 계층 준비 여부
             {
                 enemy.layer = enemyLayer; // 공통 적 충돌 계층 지정

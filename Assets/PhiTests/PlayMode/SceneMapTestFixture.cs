@@ -44,6 +44,11 @@ internal sealed class SceneMapTestFixture : IDisposable // 독립 씬 맵 시험
                 {
                     wall.gameObject.SetActive(false); // 독립 전투 시험의 벽 간섭 제외
                 }
+                Transform encounter = floor.Find("Spawn Areas/Encounter"); // 저장된 추가 등장 지점
+                if (encounter != null) // 구역 지점 존재 여부
+                {
+                    encounter.gameObject.SetActive(false); // 기존 전투 시험의 추가 적 간섭 제외
+                }
                 floor.localPosition = Vector3.zero; // 시험용 바닥 중심
                 floor.localRotation = Quaternion.identity; // 시험용 바닥 회전
                 floor.localScale = new Vector3(20f, 12f, 1f); // 시험용 바닥 크기

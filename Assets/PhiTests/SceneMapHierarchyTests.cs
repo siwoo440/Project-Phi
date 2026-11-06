@@ -70,6 +70,28 @@ public class SceneMapHierarchyTests // 저장된 맵 구성 검증
         Assert.That(edges[3].bounds.max.y, Is.GreaterThanOrEqualTo(top)); // 오른쪽 벽의 위쪽 연결
     }
 
+    [Test] // 저장된 적 스폰 지점 사례
+    public void SpawnPointsAndEncounterExistBeforePlay() // 시작 지점과 진입 구역 검증
+    {
+        GameObject map = FindRoot("Map"); // 저장된 맵 루트
+        Assert.That(map, Is.Not.Null); // 맵 존재 확인
+        Transform points = map.transform.Find("Map Floor/Spawn Areas/Initial"); // 시작 스폰 지점 묶음
+        Assert.That(points, Is.Not.Null); // 플레이 전 시작 지점 존재
+        Assert.That(points.childCount, Is.GreaterThanOrEqualTo(10)); // 다섯 종류와 밀집 지점 존재
+        Assert.That(points.GetComponentsInChildren<EnemySpawnPoint>().Length, Is.EqualTo(10)); // 종류가 연결된 시작 지점
+        Transform encounter = map.transform.Find("Map Floor/Spawn Areas/Encounter"); // 추가 등장 구역
+        Assert.That(encounter, Is.Not.Null); // 플레이 전 추가 구역 존재
+        Assert.That(encounter.childCount, Is.GreaterThanOrEqualTo(5)); // 다섯 종류의 추가 지점 존재
+        Assert.That(encounter.GetComponentsInChildren<EnemySpawnPoint>().Length, Is.EqualTo(5)); // 종류가 연결된 추가 지점
+        Transform trigger = map.transform.Find("Map Floor/Encounter Trigger"); // 구역 진입 판정
+        Assert.That(trigger, Is.Not.Null); // 플레이 전 진입 구역 존재
+        Assert.That(trigger.GetComponent<BoxCollider2D>().isTrigger, Is.True); // 통과 가능한 구역 판정
+        SerializedObject bootstrap = new SerializedObject(FindRoot("Combat Prototype").GetComponent<PrototypeBootstrap>()); // 저장된 전투 구성 참조
+        Assert.That(bootstrap.FindProperty("initialSpawnPoints").objectReferenceValue, Is.EqualTo(points)); // 시작 지점의 씬 연결
+        Assert.That(bootstrap.FindProperty("encounterSpawnPoints").objectReferenceValue, Is.EqualTo(encounter)); // 구역 지점의 씬 연결
+        Assert.That(bootstrap.FindProperty("encounterTrigger").objectReferenceValue, Is.EqualTo(trigger.GetComponent<BoxCollider2D>())); // 구역 판정의 씬 연결
+    }
+
     [Test] // 저장된 내부 장애물 사례
     public void InternalWallExistsInHierarchyBeforePlay() // 씬에 저장된 내부 벽 검증
     {
