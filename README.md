@@ -20,7 +20,7 @@ Windows PC를 대상으로 하는 2D 탑뷰 싱글 플레이 생존형 액션 RP
 
 프로젝트를 열었을 때 기본 `SampleScene`이 보인다면 `Assets/Phi/Scenes/CombatPrototype.unity`를 열거나 `Phi > Open Combat Prototype`을 선택한 뒤 Play를 누릅니다. 전투 씬을 빌드의 첫 씬으로 등록했으며 기존 `SampleScene`도 유지합니다. Unity 프로젝트 복사본에서 편집 모드와 플레이 모드 자동 테스트를 실행했습니다. 실제 마우스를 이용한 수동 플레이는 아직 검증하지 않았습니다.
 
-전투 씬의 맵 바닥과 경계는 Play 전부터 하이어라키에 있습니다. 플레이어·적·전투 UI는 Play할 때 생성됩니다. 첫 씬 등록은 완료됐으나 독립 빌드의 실행 결과는 아직 확인하지 않았습니다.
+전투 씬의 맵 바닥과 경계는 Play 전부터 하이어라키에 있습니다. 플레이어·적·전투 UI는 Play할 때 생성됩니다. 프로젝트 복사본에서 Windows 빌드가 성공했으며 실행 파일은 `D:\Project-Phi\Builds\ProjectPhiPrototype\ProjectPhiPrototype.exe`입니다. 실행에 필요한 같은 폴더의 파일도 함께 유지해야 합니다. 이 빌드의 실제 실행과 수동 조작은 아직 검증하지 않았습니다.
 
 | 조작 | 동작 |
 |---|---|
