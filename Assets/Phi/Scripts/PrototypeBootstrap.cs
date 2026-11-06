@@ -21,11 +21,20 @@ namespace Phi // 프로토타입 영역
             get; // 전투 스킬 상태 읽기
             private set; // 전투 스킬 상태 내부 설정
         }
+        public DodgeRuntime DodgeState // 설정과 분리된 회피 상태
+        {
+            get; // 전투 회피 상태 읽기
+            private set; // 전투 회피 상태 내부 설정
+        }
         private Fighter player; // 플레이어 전투 상태
         private readonly List<Slime> slimes = new List<Slime>(); // 슬라임 목록
         private readonly List<BowArrow> arrows = new List<BowArrow>(); // 발사된 화살 상태 목록
         private readonly List<RaycastHit2D> arrowHits = new List<RaycastHit2D>(); // 화살 경로 충돌 결과
         private readonly List<Collider2D> arrowOverlaps = new List<Collider2D>(); // 화살 출발점 충돌 결과
+        private readonly List<RaycastHit2D> dodgeHits = new List<RaycastHit2D>(); // 회피 경로의 장애물 충돌 결과
+        private readonly List<Collider2D> dodgeOverlaps = new List<Collider2D>(); // 회피 시작점의 장애물 충돌 결과
+        private readonly Dictionary<Collider2D, Vector2> dodgeSafeContacts = new Dictionary<Collider2D, Vector2>(); // 실제 침투 없는 검증된 접촉 법선
+        private readonly Dictionary<Collider2D, float> dodgeContactGaps = new Dictionary<Collider2D, float>(); // 검증된 접촉의 보정된 실제 간격
         private readonly List<GameObject> explosionEffects = new List<GameObject>(); // 일시적인 폭발 표시 목록
         private Camera gameCamera; // 추적 카메라
         private GameObject aimMarker; // 조준 표시
@@ -50,6 +59,10 @@ namespace Phi // 프로토타입 영역
         private Texture2D explosionTexture; // 임시 원형 폭발 테두리 질감
         private Sprite explosionSprite; // 임시 원형 폭발 테두리 그림
         private Vector2 aim = Vector2.right; // 마지막 조준 방향
+        private Vector2 dodgeDirection; // 회피 시작 시 고정된 방향
+        private float dodgeSpeed; // 회피 시작 시 고정된 이동속도
+        private bool dodgeBlocked; // 이번 회피의 벽 도달 여부
+        private BoxCollider2D dodgeProbe; // 실제 겹침 깊이의 임시 검사 도형
 
         private void Start() // 전투 시작
         {
@@ -57,6 +70,7 @@ namespace Phi // 프로토타입 영역
             equippedWeapon = runtimeSettings.startingWeapon; // 설정값에서 전투 시작 무기 복사
             EquippedSkills = SkillLoadout.Create(runtimeSettings.startingSkillQ, runtimeSettings.startingSkillE, runtimeSettings.startingSkillR); // 전투 시작 스킬 복사와 슬롯 검증
             SkillState = new SkillRuntime(runtimeSettings); // 시작 마나와 대기시간 초기화
+            DodgeState = new DodgeRuntime(runtimeSettings); // 시작 스태미나와 회피 상태 초기화
             List<string> skillErrors = new List<string>(); // 슬롯별 오류 목록
             AddSkillError(skillErrors, "Q", EquippedSkills.QError); // Q 슬롯 오류 수집
             AddSkillError(skillErrors, "E", EquippedSkills.EError); // E 슬롯 오류 수집
@@ -136,11 +150,30 @@ namespace Phi // 프로토타입 영역
                 ClearArrows(); // 전투 종료 시 기존 화살 제거
                 return; // 사망 중 전투 입력 중지
             }
-            ReadMovement(); // 이동 입력
+            FollowCamera(); // 회피 방향 선택 전 카메라 위치 반영
+            UpdateAim(); // 현재 프레임의 마우스 조준
+            bool wasDodging = DodgeState.IsDodging; // 프레임 시작의 회피 상태
+            float dodgeTime = DodgeState.Tick(Time.deltaTime); // 이전 회피에만 경과 시간 적용
+            if (dodgeTime > 0f) // 이번 프레임의 회피 이동 여부
+            {
+                MoveDodge(dodgeTime); // 장애물과 씬 경계 안의 회피 이동
+            }
+            FollowCamera(); // 이전 회피 이동 후 카메라 위치 반영
+            UpdateAim(); // 이동 위치 기준의 현재 커서 조준
+            bool startedDodge = ReadDodgeInput(); // 현재 입력 시점의 새 회피 시작
+            bool suppressAttack = wasDodging || startedDodge; // 이동 종료 프레임까지 새 공격 차단
+            player.SetInvulnerable(DodgeState.IsInvulnerable); // 새 회피 시작과 기존 회피 종료 반영
+            if (!suppressAttack) // 회피 중이 아닌 일반 이동 여부
+            {
+                ReadMovement(); // 이동 입력
+            }
             FollowCamera(); // 이동 직후 카메라 위치 반영
             SkillState.Tick(Time.deltaTime); // 마나 회복과 대기시간 갱신
-            ReadAimAndAttack(); // 조준과 공격 입력
-            ReadSkillInput(); // 현재 조준 방향의 스킬 입력
+            ReadAimAndAttack(suppressAttack); // 조준과 일반 공격 입력
+            if (!suppressAttack) // 회피 중 스킬 입력 차단
+            {
+                ReadSkillInput(); // 현재 조준 방향의 스킬 입력
+            }
             UpdateArrows(); // 발사된 화살 이동과 충돌
             UpdateExplosionEffects(); // 종료된 폭발 표시 정리
             UpdateSlimes(); // 슬라임 행동
@@ -231,22 +264,152 @@ namespace Phi // 프로토타입 영역
 
         private void ReadMovement() // 키보드 이동
         {
-            Keyboard keyboard = Keyboard.current; // 현재 키보드
-            if (keyboard == null) // 키보드 부재 확인
-            {
-                return; // 이동 입력 없음
-            }
-            Vector2 input = new Vector2((keyboard.dKey.isPressed ? 1f : 0f) - (keyboard.aKey.isPressed ? 1f : 0f), (keyboard.wKey.isPressed ? 1f : 0f) - (keyboard.sKey.isPressed ? 1f : 0f)); // WASD 방향
-            Vector2 movement = CombatMath.NormalizeMovement(input) * runtimeSettings.playerSpeed * Time.deltaTime; // 정규화 이동량
+            Vector2 movement = MovementInput() * runtimeSettings.playerSpeed * Time.deltaTime; // 정규화 이동량
             player.transform.position = mapRegion.ClampPosition((Vector2)player.transform.position + movement, PrototypeSettings.PlayerRadius); // 경계 안의 플레이어 위치 변경
         }
 
-        private void ReadAimAndAttack() // 마우스 조준과 공격
+        private static Vector2 MovementInput() // 현재 WASD 이동 방향
+        {
+            Keyboard keyboard = Keyboard.current; // 현재 키보드
+            if (keyboard == null) // 키보드 부재 확인
+            {
+                return Vector2.zero; // 이동 입력 없음
+            }
+            Vector2 input = new Vector2((keyboard.dKey.isPressed ? 1f : 0f) - (keyboard.aKey.isPressed ? 1f : 0f), (keyboard.wKey.isPressed ? 1f : 0f) - (keyboard.sKey.isPressed ? 1f : 0f)); // WASD 방향
+            return CombatMath.NormalizeMovement(input); // 대각선 속도 정규화
+        }
+
+        private bool ReadDodgeInput() // Shift 회피 입력과 시작 방향
+        {
+            Keyboard keyboard = Keyboard.current; // 현재 키보드
+            if (keyboard == null || TextInputFocused() || !combatLayersReady || !(keyboard.leftShiftKey.wasPressedThisFrame || keyboard.rightShiftKey.wasPressedThisFrame)) // 입력과 충돌 검사 조건
+            {
+                return false; // 회피 시작 없음
+            }
+            if (!DodgeState.TryDodge()) // 자원과 대기시간 검사
+            {
+                return false; // 회피 실패 시 기존 전투 유지
+            }
+            Vector2 movement = MovementInput(); // 회피 시작 순간의 이동 방향
+            dodgeDirection = movement.sqrMagnitude > 0f ? movement : -aim; // 이동 방향 또는 조준 반대 방향 고정
+            dodgeSpeed = Mathf.Max(0f, runtimeSettings.dodgeDistance) / Mathf.Max(0.00001f, runtimeSettings.dodgeDuration); // 회피 시작 속도 고정
+            dodgeBlocked = false; // 새 회피의 장애물 상태 초기화
+            return true; // 회피 시작 성공
+        }
+
+        private void MoveDodge(float elapsed) // 장애물과 씬 경계에 막히는 회피 이동
+        {
+            if (dodgeBlocked) // 이번 회피의 벽 도달 여부
+            {
+                return; // 남은 회피 시간 동안 제자리 유지
+            }
+            Vector2 start = player.transform.position; // 회피 이동 시작 중심
+            float distance = Mathf.Max(0f, dodgeSpeed * elapsed); // 남은 회피 시간의 이동 거리
+            float requested = distance; // 장애물 검사 전 이동 거리
+            Rect area = mapRegion.Interior; // 씬 경계 안쪽 영역
+            float radius = PrototypeSettings.PlayerRadius; // 플레이어 사각형 반폭
+            if (dodgeDirection.x > 0f) // 오른쪽 회피 여부
+            {
+                distance = Mathf.Min(distance, (area.xMax - radius - start.x) / dodgeDirection.x); // 오른쪽 경계 도달 거리
+            }
+            if (dodgeDirection.x < 0f) // 왼쪽 회피 여부
+            {
+                distance = Mathf.Min(distance, (area.xMin + radius - start.x) / dodgeDirection.x); // 왼쪽 경계 도달 거리
+            }
+            if (dodgeDirection.y > 0f) // 위쪽 회피 여부
+            {
+                distance = Mathf.Min(distance, (area.yMax - radius - start.y) / dodgeDirection.y); // 위쪽 경계 도달 거리
+            }
+            if (dodgeDirection.y < 0f) // 아래쪽 회피 여부
+            {
+                distance = Mathf.Min(distance, (area.yMin + radius - start.y) / dodgeDirection.y); // 아래쪽 경계 도달 거리
+            }
+            distance = Mathf.Max(0f, distance); // 음수 이동 거리 방지
+            Physics2D.SyncTransforms(); // 이동된 장애물의 물리 위치 반영
+            Vector2 size = Vector2.one * (radius * 2f); // 플레이어 사각 도형 크기
+            dodgeOverlaps.Clear(); // 이전 시작점 충돌 결과 제거
+            dodgeSafeContacts.Clear(); // 이전 검사 접촉 법선 제거
+            dodgeContactGaps.Clear(); // 이전 검사 접촉 간격 제거
+            Physics2D.OverlapBox(start, size, 0f, swordOcclusionFilter, dodgeOverlaps); // 시작점의 장애물 겹침 검사
+            if (DodgeStartsInsideObstacle(start, size)) // 실제 장애물 내부의 시작점 여부
+            {
+                dodgeBlocked = true; // 현재 회피의 이동 중단
+                return; // 남은 회피 시간 동안 제자리 유지
+            }
+            foreach (KeyValuePair<Collider2D, Vector2> contact in dodgeSafeContacts) // 실제 침투 없는 검증된 접촉 순회
+            {
+                float approach = Vector2.Dot(dodgeDirection, contact.Value); // 현재 접촉면을 향한 이동 비율
+                if (approach > 0f) // 접촉면 방향 이동 여부
+                {
+                    float gap = Mathf.Max(0f, dodgeContactGaps[contact.Key]); // 음수 없는 실제 도형 간격
+                    distance = Mathf.Min(distance, gap / approach); // 실제 접촉면까지의 보수적인 이동 거리
+                }
+            }
+            dodgeHits.Clear(); // 이전 경로 충돌 결과 제거
+            Physics2D.BoxCast(start, size, 0f, dodgeDirection, swordOcclusionFilter, dodgeHits, distance); // 플레이어 크기의 연속 경로 검사
+            foreach (RaycastHit2D hit in dodgeHits) // 충돌한 장애물 순회
+            {
+                if (hit.distance <= 0.00001f && dodgeSafeContacts.TryGetValue(hit.collider, out Vector2 normal) && Vector2.Dot(dodgeDirection, normal) < -0.0001f) // 검증된 접촉면에서 장애물 반대 방향 여부
+                {
+                    continue; // 접촉면의 후퇴 허용
+                }
+                distance = Mathf.Min(distance, Mathf.Max(0f, hit.distance - 0.0001f)); // 가장 가까운 벽 앞 정지
+            }
+            player.transform.position = mapRegion.ClampPosition(start + dodgeDirection * distance, radius); // 씬 경계 안쪽의 회피 위치
+            dodgeBlocked = distance < requested - 0.000001f; // 벽에 닿으면 남은 이동 중단
+        }
+
+        private bool DodgeStartsInsideObstacle(Vector2 position, Vector2 size) // 접촉 여유와 실제 침투 구분
+        {
+            if (dodgeOverlaps.Count == 0) // 근처 장애물 부재 여부
+            {
+                return false; // 시작점 침투 없음
+            }
+            if (dodgeProbe == null) // 거리 검사 도형 생성 여부
+            {
+                GameObject probeObject = new GameObject("Dodge Collision Probe"); // 임시 거리 검사 오브젝트
+                probeObject.layer = playerLayer; // 적과 장애물 판정에서 제외할 계층
+                dodgeProbe = probeObject.AddComponent<BoxCollider2D>(); // 플레이어 모양의 검사 충돌체
+                dodgeProbe.isTrigger = true; // 물리 반응 없는 검사 도형
+                dodgeProbe.enabled = false; // 검사 이외의 충돌 방지
+            }
+            dodgeProbe.transform.position = position; // 플레이어 중심에 검사 도형 배치
+            dodgeProbe.size = size; // 플레이어의 월드 크기 사용
+            dodgeProbe.enabled = true; // 일시적인 거리 검사 활성화
+            try // 검사 도형의 안전한 해제 보장
+            {
+                Physics2D.SyncTransforms(); // 검사 도형 위치 반영
+                foreach (Collider2D obstacle in dodgeOverlaps) // 겹침 후보 순회
+                {
+                    ColliderDistance2D separation = dodgeProbe.Distance(obstacle); // 두 도형의 실제 최단 거리
+                    float offset = Mathf.Max(0f, Physics2D.defaultContactOffset); // 물리 도형의 접촉 여유
+                    bool verifiedBox = obstacle is BoxCollider2D box && box.edgeRadius <= 0f; // 검증된 기본 사각 충돌체
+                    bool verifiedCircle = obstacle is CircleCollider2D; // 검증된 원형 충돌체
+                    float correction = verifiedBox ? offset * 2f : verifiedCircle ? offset : 0f; // 검증된 도형의 접촉 여유 보정
+                    if (!separation.isValid || separation.distance + correction < -0.000001f) // 유효하지 않은 검사 또는 보정 후 실제 침투
+                    {
+                        return true; // 안전한 회피 차단
+                    }
+                    if (verifiedBox || verifiedCircle) // 보정 규칙을 검증한 도형 여부
+                    {
+                        dodgeSafeContacts[obstacle] = separation.normal; // 검사 도형에서 벽을 향한 법선 보관
+                        dodgeContactGaps[obstacle] = separation.distance + correction; // 접촉 여유를 제외한 실제 간격
+                    }
+                }
+                return false; // 실제 침투 없는 접촉 여유
+            }
+            finally // 예외나 조기 반환 이후 정리
+            {
+                dodgeProbe.enabled = false; // 물리 단계 이전 검사 도형 비활성화
+            }
+        }
+
+        private void UpdateAim() // 현재 마우스 조준 방향 갱신
         {
             Mouse mouse = Mouse.current; // 현재 마우스
             if (mouse == null) // 마우스 부재 확인
             {
-                return; // 마우스 입력 없음
+                return; // 기존 조준 방향 유지
             }
             Vector3 mouseWorld = gameCamera.ScreenToWorldPoint(new Vector3(mouse.position.ReadValue().x, mouse.position.ReadValue().y, -gameCamera.transform.position.z)); // 커서의 월드 좌표
             Vector2 direction = (Vector2)(mouseWorld - player.transform.position); // 플레이어에서 커서 방향
@@ -255,7 +418,17 @@ namespace Phi // 프로토타입 영역
                 aim = direction.normalized; // 조준 방향 저장
             }
             UpdateAimMarker(); // 경계 안의 조준 표시 갱신
-            if ((attackPressed || (pressActive && mouse.leftButton.isPressed)) && !blockedPress && !PointerOverUi(mouse.position.ReadValue()) && Time.time >= nextAttack) // 짧은 클릭과 홀드 공격 검사
+        }
+
+        private void ReadAimAndAttack(bool suppressAttack) // 마우스 조준과 공격
+        {
+            Mouse mouse = Mouse.current; // 현재 마우스
+            if (mouse == null) // 마우스 부재 확인
+            {
+                return; // 마우스 입력 없음
+            }
+            UpdateAim(); // 이동 이후 조준 표시 갱신
+            if (!suppressAttack && (attackPressed || (pressActive && mouse.leftButton.isPressed)) && !blockedPress && !PointerOverUi(mouse.position.ReadValue()) && Time.time >= nextAttack) // 짧은 클릭과 홀드 공격 검사
             {
                 Attack(); // 선택한 무기의 일반 공격
                 float interval = equippedWeapon == WeaponType.Staff ? runtimeSettings.staffInterval : equippedWeapon == WeaponType.Bow ? runtimeSettings.bowInterval : runtimeSettings.swordInterval; // 장착 무기의 공격 간격
@@ -418,6 +591,10 @@ namespace Phi // 프로토타입 영역
         private void OnDestroy() // 입력 이벤트 정리
         {
             ClearArrows(); // 장면 종료 시 화살 상태 정리
+            if (dodgeProbe != null) // 임시 회피 검사 도형 존재 여부
+            {
+                Destroy(dodgeProbe.gameObject); // 전투 종료 시 검사 오브젝트 제거
+            }
             if (explosionSprite != null) // 폭발 그림 생성 여부
             {
                 Destroy(explosionSprite); // 임시 폭발 그림 제거
@@ -709,7 +886,7 @@ namespace Phi // 프로토타입 영역
         private void UpdateSkillStatus() // 마나와 슬롯별 상태 갱신
         {
             string slots = SkillDisplay("Q", EquippedSkills.Q, EquippedSkills.QError, 0) + " | " + SkillDisplay("E", EquippedSkills.E, EquippedSkills.EError, 1) + " | " + SkillDisplay("R", EquippedSkills.R, EquippedSkills.RError, 2); // 슬롯과 대기시간 표시
-            skillStatusText.text = "MP " + Mathf.FloorToInt(SkillState.Mana) + " / " + Mathf.FloorToInt(SkillState.MaximumMana) + "\n" + slots; // 마나와 스킬 상태 표시
+            skillStatusText.text = "MP " + Mathf.FloorToInt(SkillState.Mana) + " / " + Mathf.FloorToInt(SkillState.MaximumMana) + "    ST " + Mathf.FloorToInt(DodgeState.Stamina) + " / " + Mathf.FloorToInt(DodgeState.MaximumStamina) + "\n" + slots; // 마나와 스태미나 및 스킬 상태
         }
 
         private string SkillDisplay(string slot, SkillId skill, SkillSlotError error, int index) // 슬롯별 스킬과 대기시간
@@ -835,11 +1012,17 @@ namespace Phi // 프로토타입 영역
         }
         public int Defense { get; private set; } // 방어력
         public bool Dead { get { return Health <= 0; } } // 사망 여부
+        public bool IsInvulnerable // 회피 무적 여부
+        {
+            get; // 무적 상태 읽기
+            private set; // 무적 상태 내부 설정
+        }
         private int maximumHealth; // 최대 체력
         private SpriteRenderer body; // 대상 도형
         private SpriteRenderer healthBar; // 머리 위 체력 막대
         private Color bodyColor; // 기본 도형 색상
         private float flashUntil; // 피격 표시 종료 시각
+        private GameObject invulnerabilityVisual; // 기존 색상과 독립적인 무적 표시
 
         public void Initialize(int health, int defense) // 전투 상태 초기화
         {
@@ -869,9 +1052,9 @@ namespace Phi // 프로토타입 영역
 
         public void TakeDamage(int damage) // 피해 적용
         {
-            if (Dead) // 사망 상태 확인
+            if (Dead || IsInvulnerable) // 사망 또는 무적 상태 확인
             {
-                return; // 사망 대상 중복 피해 방지
+                return; // 사망 대상 중복 피해와 무적 피해 방지
             }
             Health = Mathf.Max(0, Health - Mathf.Max(0, damage)); // 체력 감소
             RefreshHealthBar(); // 체력 막대 갱신
@@ -884,6 +1067,25 @@ namespace Phi // 프로토타입 영역
             {
                 body.color = Color.white; // 피격 순간 색상 변화
                 flashUntil = Time.time + 0.15f; // 피격 표시 시간
+            }
+        }
+
+        public void SetInvulnerable(bool value) // 무적 상태와 별도 표시 변경
+        {
+            IsInvulnerable = value && !Dead; // 사망 대상의 무적 방지
+            if (IsInvulnerable && invulnerabilityVisual == null) // 첫 무적 표시 생성 여부
+            {
+                invulnerabilityVisual = new GameObject("Dodge Invulnerability"); // 무적 표시 오브젝트
+                invulnerabilityVisual.transform.SetParent(transform, false); // 플레이어 위치에 표시 연결
+                invulnerabilityVisual.transform.localScale = new Vector3(1.3f, 1.3f, 1f); // 본체 주변 표시 크기
+                SpriteRenderer outline = invulnerabilityVisual.AddComponent<SpriteRenderer>(); // 무적 표시 렌더러
+                outline.sprite = body.sprite; // 기존 사각 도형 공유
+                outline.color = new Color(0.5f, 0.85f, 1f, 0.45f); // 임시 반투명 무적 표시
+                outline.sortingOrder = body.sortingOrder - 1; // 본체 뒤에 무적 표시
+            }
+            if (invulnerabilityVisual != null) // 생성된 표시 존재 여부
+            {
+                invulnerabilityVisual.SetActive(IsInvulnerable); // 현재 무적 상태 반영
             }
         }
 

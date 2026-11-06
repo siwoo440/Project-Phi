@@ -18,6 +18,14 @@ namespace Phi // 전투 설정 영역
         public float playerSpeed = 4f; // 플레이어 이동속도
         public int playerMana = 50; // 플레이어 최대 마나
         public float manaRegen = 3f; // 초당 마나 회복량
+        public int playerStamina = 100; // 플레이어 최대 스태미나
+        public float staminaRegen = 15f; // 초당 스태미나 회복량
+        public float staminaRegenDelay = 1f; // 회피 종료 후 재생 대기시간
+        public int dodgeCost = 25; // 회피 스태미나 비용
+        public float dodgeCooldown = 1.2f; // 회피 재사용 대기시간
+        public float dodgeDuration = 0.25f; // 임시 회피 이동 시간
+        public float dodgeDistance = 2f; // 임시 회피 이동 거리
+        public float dodgeInvulnerability = 0.25f; // 임시 회피 무적 시간
         [HideInInspector] public float mapHalfWidth = 10f; // 이전 가로 맵 설정 보존
         [HideInInspector] public float mapHalfHeight = 6f; // 이전 세로 맵 설정 보존
         public const float BoundaryThickness = 0.12f; // 공간 테두리 두께
