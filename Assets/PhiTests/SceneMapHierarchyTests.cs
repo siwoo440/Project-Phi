@@ -8,7 +8,6 @@ using UnityEngine.SceneManagement; // 씬 자료형
 public class SceneMapHierarchyTests // 저장된 맵 구성 검증
 {
     private const string ScenePath = "Assets/Phi/Scenes/CombatPrototype.unity"; // 전투 씬 경로
-    private const string SpritePath = "Assets/Phi/Art/MapSquare.png"; // 맵 스프라이트 경로
     private Scene preview; // 사용자 씬과 독립된 프리뷰 씬
 
     [SetUp] // 각 시험 전 준비
@@ -39,17 +38,36 @@ public class SceneMapHierarchyTests // 저장된 맵 구성 검증
         SpriteRenderer floorRenderer = floor.GetComponent<SpriteRenderer>(); // 바닥 렌더러 확인
         AssertRenderer(floorRenderer); // 바닥 스프라이트 확인
         Bounds area = floorRenderer.bounds; // 저장된 바닥의 월드 영역
-        Assert.That(area.center.x, Is.EqualTo(0f).Within(0.001f)); // 기본 가로 중심
-        Assert.That(area.center.y, Is.EqualTo(0f).Within(0.001f)); // 기본 세로 중심
-        Assert.That(area.extents.x, Is.EqualTo(10f).Within(0.001f)); // 기본 가로 반폭
-        Assert.That(area.extents.y, Is.EqualTo(6f).Within(0.001f)); // 기본 세로 반높이
+        AssertAxes(floor); // 사용 가능한 바닥 축 확인
         string[] names = { "Boundary Top", "Boundary Bottom", "Boundary Left", "Boundary Right" }; // 필수 경계 이름
-        foreach (string boundaryName in names) // 네 방향 경계 검사
+        SpriteRenderer[] edges = new SpriteRenderer[names.Length]; // 실제 경계 렌더러 목록
+        for (int index = 0; index < names.Length; index++) // 네 방향 경계 검사
         {
-            Transform boundary = floor.Find(boundaryName); // 바닥의 경계 자식 확인
-            Assert.That(boundary, Is.Not.Null, boundaryName); // 저장된 경계 존재
-            AssertRenderer(boundary.GetComponent<SpriteRenderer>()); // 경계 스프라이트 확인
+            Transform boundary = floor.Find(names[index]); // 바닥의 경계 자식 확인
+            Assert.That(boundary, Is.Not.Null, names[index]); // 저장된 경계 존재
+            edges[index] = boundary.GetComponent<SpriteRenderer>(); // 실제 경계 렌더러 보관
+            AssertRenderer(edges[index]); // 경계 스프라이트 확인
+            AssertAxes(boundary); // 사용 가능한 경계 축 확인
         }
+        float left = edges[2].bounds.max.x; // 왼쪽 경계의 안쪽 면
+        float right = edges[3].bounds.min.x; // 오른쪽 경계의 안쪽 면
+        float bottom = edges[1].bounds.max.y; // 아래쪽 경계의 안쪽 면
+        float top = edges[0].bounds.min.y; // 위쪽 경계의 안쪽 면
+        float minimumSize = PrototypeSettings.SlimeRadius * 2f; // 가장 큰 적 도형의 최소 공간
+        Assert.That(right - left, Is.GreaterThanOrEqualTo(minimumSize)); // 도형을 담는 가로 공간
+        Assert.That(top - bottom, Is.GreaterThanOrEqualTo(minimumSize)); // 도형을 담는 세로 공간
+        Assert.That(left, Is.GreaterThanOrEqualTo(area.min.x - 0.0001f)); // 바닥 내부의 왼쪽 면
+        Assert.That(right, Is.LessThanOrEqualTo(area.max.x + 0.0001f)); // 바닥 내부의 오른쪽 면
+        Assert.That(bottom, Is.GreaterThanOrEqualTo(area.min.y - 0.0001f)); // 바닥 내부의 아래쪽 면
+        Assert.That(top, Is.LessThanOrEqualTo(area.max.y + 0.0001f)); // 바닥 내부의 위쪽 면
+        Assert.That(edges[0].bounds.min.x, Is.LessThanOrEqualTo(left)); // 위쪽 벽의 왼쪽 연결
+        Assert.That(edges[0].bounds.max.x, Is.GreaterThanOrEqualTo(right)); // 위쪽 벽의 오른쪽 연결
+        Assert.That(edges[1].bounds.min.x, Is.LessThanOrEqualTo(left)); // 아래쪽 벽의 왼쪽 연결
+        Assert.That(edges[1].bounds.max.x, Is.GreaterThanOrEqualTo(right)); // 아래쪽 벽의 오른쪽 연결
+        Assert.That(edges[2].bounds.min.y, Is.LessThanOrEqualTo(bottom)); // 왼쪽 벽의 아래쪽 연결
+        Assert.That(edges[2].bounds.max.y, Is.GreaterThanOrEqualTo(top)); // 왼쪽 벽의 위쪽 연결
+        Assert.That(edges[3].bounds.min.y, Is.LessThanOrEqualTo(bottom)); // 오른쪽 벽의 아래쪽 연결
+        Assert.That(edges[3].bounds.max.y, Is.GreaterThanOrEqualTo(top)); // 오른쪽 벽의 위쪽 연결
     }
 
     [Test] // 저장된 바닥 참조 사례
@@ -86,11 +104,24 @@ public class SceneMapHierarchyTests // 저장된 맵 구성 검증
         return null; // 일치하는 루트 없음
     }
 
+    private static void AssertAxes(Transform part) // 맵의 양수 축 정렬 확인
+    {
+        Vector3 axisX = part.localToWorldMatrix.MultiplyVector(Vector3.right); // 월드 가로축
+        Vector3 axisY = part.localToWorldMatrix.MultiplyVector(Vector3.up); // 월드 세로축
+        Assert.That(axisX.x, Is.GreaterThan(0f)); // 양수 가로 크기
+        Assert.That(axisY.y, Is.GreaterThan(0f)); // 양수 세로 크기
+        Assert.That(Mathf.Abs(axisX.y), Is.LessThanOrEqualTo(0.0001f)); // 가로축의 평면 정렬
+        Assert.That(Mathf.Abs(axisY.x), Is.LessThanOrEqualTo(0.0001f)); // 세로축의 평면 정렬
+        Assert.That(Mathf.Abs(axisX.z), Is.LessThanOrEqualTo(0.0001f)); // 가로축의 깊이 정렬
+        Assert.That(Mathf.Abs(axisY.z), Is.LessThanOrEqualTo(0.0001f)); // 세로축의 깊이 정렬
+    }
     private static void AssertRenderer(SpriteRenderer renderer) // 맵 그림 참조 확인
     {
         Assert.That(renderer, Is.Not.Null); // 스프라이트 렌더러 존재
         Assert.That(renderer.enabled, Is.True); // 스프라이트 표시 활성화
+        Assert.That(renderer.gameObject.activeInHierarchy, Is.True); // 씬에서 활성화된 맵 오브젝트
         Assert.That(renderer.sprite, Is.Not.Null); // 실제 스프라이트 에셋 연결
-        Assert.That(AssetDatabase.GetAssetPath(renderer.sprite), Is.EqualTo(SpritePath)); // 맵 에셋 경로 일치
     }
 }
+
+

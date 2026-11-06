@@ -14,6 +14,7 @@ public class SwordOcclusionTests // 검과 장애물 검증
     private const int PlayerLayer = 9; // 시험 플레이어 계층
     private const int EnemyLayer = 10; // 시험 적 계층
     private readonly List<GameObject> obstacles = new List<GameObject>(); // 시험 장애물 목록
+    private SceneMapTestFixture sceneMap; // 독립 씬 맵 시험 설정
     private PrototypeSettings trial; // 원본을 보존할 임시 설정
     private PrototypeBootstrap bootstrap; // 실제 전투 구성 요소
     private bool previousQueriesHitTriggers; // 기존 트리거 검사 설정
@@ -22,19 +23,38 @@ public class SwordOcclusionTests // 검과 장애물 검증
     public IEnumerator SetUp() // 독립 전투 씬 준비
     {
         previousQueriesHitTriggers = Physics2D.queriesHitTriggers; // 기존 트리거 설정 보관
+        sceneMap = new SceneMapTestFixture(); // 로드된 씬의 시험 맵 설정
         UnityAction<Scene, LoadSceneMode> loaded = (scene, mode) => // 전투 시작 전 설정 교체
         {
-            bootstrap = Object.FindFirstObjectByType<PrototypeBootstrap>(); // 전투 구성 요소 확인
+            foreach (GameObject root in scene.GetRootGameObjects()) // 새 씬 루트 검사
+            {
+                PrototypeBootstrap candidate = root.GetComponentInChildren<PrototypeBootstrap>(true); // 새 씬의 전투 구성 요소 확인
+                if (candidate != null) // 전투 구성 요소 존재 여부
+                {
+                    bootstrap = candidate; // 새 씬의 전투 구성 요소 보관
+                    break; // 대상 검색 종료
+                }
+            }
+            if (bootstrap == null) // 새 씬의 전투 구성 요소 누락
+            {
+                return; // 잘못된 씬 참조 방지
+            }
             trial = ScriptableObject.CreateInstance<PrototypeSettings>(); // 임시 전투 설정 생성
             trial.slimeCount = 4; // 최대 타격 수를 넘는 시험 적 수
             trial.slimeSpeed = 0f; // 시험 중 적 위치 유지
             typeof(PrototypeBootstrap).GetField("settings", BindingFlags.Instance | BindingFlags.NonPublic).SetValue(bootstrap, trial); // 전투 시작 설정 교체
         };
         SceneManager.sceneLoaded += loaded; // 씬 로드 콜백 등록
-        SceneManager.LoadScene("CombatPrototype"); // 실제 전투 씬 열기
-        yield return null; // 씬 로드 대기
-        yield return null; // 전투 대상 생성 대기
-        SceneManager.sceneLoaded -= loaded; // 씬 로드 콜백 해제
+        try // 콜백 정리 보장
+        {
+            SceneManager.LoadScene("CombatPrototype"); // 실제 전투 씬 열기
+            yield return null; // 씬 로드 대기
+            yield return null; // 전투 대상 생성 대기
+        }
+        finally // 씬 콜백 누수 방지
+        {
+            SceneManager.sceneLoaded -= loaded; // 씬 로드 콜백 해제
+        }
         typeof(PrototypeBootstrap).GetField("aim", BindingFlags.Instance | BindingFlags.NonPublic).SetValue(bootstrap, Vector2.right); // 오른쪽 검 조준
     }
 
@@ -54,6 +74,7 @@ public class SwordOcclusionTests // 검과 장애물 검증
         {
             Object.Destroy(trial); // 임시 설정 제거
         }
+        sceneMap.Dispose(); // 시험 맵 설정 이벤트와 그림 정리
         yield return null; // 제거 처리 대기
     }
 
@@ -153,3 +174,5 @@ public class SwordOcclusionTests // 검과 장애물 검증
         typeof(PrototypeBootstrap).GetMethod("Attack", BindingFlags.Instance | BindingFlags.NonPublic).Invoke(bootstrap, null); // 실제 검 타격 호출
     }
 }
+
+

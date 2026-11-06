@@ -14,6 +14,7 @@ using UnityEngine.UI; // 재시작 버튼
 public class CombatFlowTests // 전투 흐름 검증
 {
     private Mouse mouse; // 시험용 마우스
+    private SceneMapTestFixture sceneMap; // 독립 씬 맵 시험 설정
     private PrototypeSettings settings; // 시험용 임시 설정
     private bool previousRunInBackground; // 기존 백그라운드 실행 설정
     private InputSettings.BackgroundBehavior previousBackgroundBehavior; // 기존 포커스 처리 설정
@@ -29,6 +30,7 @@ public class CombatFlowTests // 전투 흐름 검증
         InputSystem.settings.backgroundBehavior = InputSettings.BackgroundBehavior.IgnoreFocus; // 가상 장치의 포커스 초기화 방지
         InputSystem.settings.editorInputBehaviorInPlayMode = InputSettings.EditorInputBehaviorInPlayMode.AllDeviceInputAlwaysGoesToGameView; // 가상 입력의 게임 경로 지정
         mouse = InputSystem.AddDevice<Mouse>(); // 독립 가상 마우스
+        sceneMap = new SceneMapTestFixture(); // 로드된 씬의 시험 맵 설정
         SceneManager.LoadScene("CombatPrototype"); // 실제 전투 씬 열기
         yield return null; // 전투 객체 생성 대기
         yield return null; // UI 배치 대기
@@ -51,6 +53,7 @@ public class CombatFlowTests // 전투 흐름 검증
         InputSystem.settings.editorInputBehaviorInPlayMode = previousEditorInputBehavior; // 에디터 입력 경로 복원
         InputSystem.settings.backgroundBehavior = previousBackgroundBehavior; // 포커스 처리 설정 복원
         Application.runInBackground = previousRunInBackground; // 백그라운드 실행 설정 복원
+        sceneMap.Dispose(); // 시험 맵 설정 이벤트와 그림 정리
         yield return null; // 프레임 정리 대기
     }
 
@@ -144,3 +147,4 @@ public class CombatFlowTests // 전투 흐름 검증
         Assert.That(GameObject.Find("Slime 1").GetComponent<Fighter>().Health, Is.EqualTo(50)); // 슬라임 체력 초기화
     }
 }
+

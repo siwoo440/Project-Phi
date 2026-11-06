@@ -14,6 +14,7 @@ public class MapBoundsTests // 시험 공간 경계 검증
 {
     private Keyboard keyboard; // 가상 키보드
     private Mouse mouse; // 가상 마우스
+    private SceneMapTestFixture sceneMap; // 독립 씬 맵 시험 설정
     private PrototypeSettings settings; // 시험용 전투 설정
     private bool previousRunInBackground; // 기존 백그라운드 실행 설정
     private InputSettings.BackgroundBehavior previousBackgroundBehavior; // 기존 포커스 처리 설정
@@ -30,6 +31,7 @@ public class MapBoundsTests // 시험 공간 경계 검증
         InputSystem.settings.editorInputBehaviorInPlayMode = InputSettings.EditorInputBehaviorInPlayMode.AllDeviceInputAlwaysGoesToGameView; // 게임 화면 입력 전달
         keyboard = InputSystem.AddDevice<Keyboard>(); // 가상 키보드 생성
         mouse = InputSystem.AddDevice<Mouse>(); // 가상 마우스 생성
+        sceneMap = new SceneMapTestFixture(); // 로드된 씬의 시험 맵 설정
         SceneManager.LoadScene("CombatPrototype"); // 실제 시험 씬 열기
         yield return null; // 전투 생성 대기
         yield return null; // 전투 초기화 대기
@@ -56,6 +58,7 @@ public class MapBoundsTests // 시험 공간 경계 검증
         InputSystem.settings.editorInputBehaviorInPlayMode = previousEditorInputBehavior; // 입력 경로 복원
         InputSystem.settings.backgroundBehavior = previousBackgroundBehavior; // 포커스 처리 복원
         Application.runInBackground = previousRunInBackground; // 실행 설정 복원
+        sceneMap.Dispose(); // 시험 맵 설정 이벤트와 그림 정리
         yield return null; // 정리 프레임 대기
     }
 
@@ -356,6 +359,7 @@ public class MapBoundsTests // 시험 공간 경계 검증
         yield return null; // 시험 프레임 정리
     }
 }
+
 
 
 
